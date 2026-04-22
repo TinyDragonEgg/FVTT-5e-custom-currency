@@ -1,10 +1,10 @@
 <form class="currency-manager" autocomplete="off">
 
   <p class="notes hint">
-    Add up to {{maxSlots}} custom currency slots. Values are stored per-actor as flags.
-    Click an icon to change it. <strong>GP Value</strong> = worth of 1 coin in GP (used for wealth total; 0 to exclude).
-    <strong>Converts Into</strong> = where this currency goes when Convert Currency is clicked.
-    <strong>Rate</strong> = how many of this coin equal 1 of the target (e.g. Rate&nbsp;5 means 5 of these&nbsp;=&nbsp;1 of target).
+    Add up to {{maxSlots}} custom currency slots. Click an icon to change it.
+    The <strong>colour wheel</strong> next to each icon shifts its hue — useful for recolouring the default gold coin.
+    <strong>GP Value</strong> = worth of 1 coin in GP (wealth total display only; 0 to exclude).
+    <strong>Converts Into</strong> + <strong>Rate</strong> = conversion chain when Convert Currency is clicked.
   </p>
 
   {{#if currencies.length}}
@@ -14,7 +14,7 @@
         <th class="col-icon">Icon</th>
         <th class="col-name">Name</th>
         <th class="col-abrv">Abbr.</th>
-        <th class="col-rate">GP Value<br><small>(wealth display)</small></th>
+        <th class="col-rate">GP Value</th>
         <th class="col-vis">Visibility</th>
         <th class="col-converts-to">Converts Into</th>
         <th class="col-convert-rate">Rate</th>
@@ -26,8 +26,17 @@
       <tr data-id="{{id}}">
 
         <td class="col-icon currency-icon-cell">
-          <img class="currency-icon-img" src="{{img}}" title="Click to change icon" data-id="{{id}}">
-          <input type="hidden" name="{{id}}.img" value="{{img}}">
+          {{!-- data-src holds the relative path; .src gives an absolute URL --}}
+          <img class="currency-icon-img"
+               src="{{img}}"
+               data-src="{{img}}"
+               data-id="{{id}}"
+               title="Click to change icon">
+          <input type="color"
+                 name="{{id}}.tintColor"
+                 class="currency-tint-input"
+                 value="{{tintColorInput}}"
+                 title="Shift the icon hue (colour tint)">
         </td>
 
         <td class="col-name">
@@ -63,8 +72,7 @@
         <td class="col-convert-rate">
           <input type="number" name="{{id}}.convertRate" value="{{convertRate}}"
                  min="1" step="1" placeholder="1"
-                 title="How many of this coin = 1 of the target currency"
-                 {{#unless convertsTo}}disabled{{/unless}}>
+                 title="How many of this coin = 1 of the target currency">
         </td>
 
         <td class="col-del">

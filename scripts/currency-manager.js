@@ -11,6 +11,7 @@ import {
     patch_currencyNames,
     patch_currencyConversion,
     rerenderSheets,
+    tintColorToFilter,
 } from "./shared.js";
 
 // Imported lazily at call-sites to avoid circular deps with 5e-custom-currency.js
@@ -30,7 +31,7 @@ export class CurrencyManagerApp extends FormApplication {
             id:             "5e-custom-currency-manager",
             title:          "Custom Currency Manager",
             template:       `modules/${MODULE_ID}/templates/currency-manager.hbs`,
-            width:          740,
+            width:          780,
             height:         "auto",
             resizable:      true,
             closeOnSubmit:  true,
@@ -43,18 +44,21 @@ export class CurrencyManagerApp extends FormApplication {
     getData() {
         const raw = getCustomCurrencies();
         const currencies = raw.map(c => {
-            // Migration: old participateConvert=true → convertsTo="standard"
+            // Migration: old participateConvert=true -> convertsTo="standard"
             const convertsTo = c.convertsTo
                 ?? (c.participateConvert ? "standard" : "none");
+            const tintColor = c.tintColor ?? "";
             return {
                 ...c,
                 img:         c.img || DEFAULT_CURRENCY_ICON,
+                tintColor,
+                // Provide a fallback colour for the colour-picker input (can't be empty)
+                tintColorInput: tintColor || "#ffaa00",
                 convertsTo,
                 convertRate: c.convertRate ?? 1,
                 visAlways:   c.visibility === "always",
                 visOwned:    c.visibility === "owned",
                 visNever:    c.visibility === "never",
-                // Build dropdown options for "Converts Into" (other slots + special values)
                 convertOptions: [
                     { value: "none",     label: "None",          selected: convertsTo === "none" },
                     { value: "standard", label: "Standard (CP)", selected: convertsTo === "standard" },
@@ -75,6 +79,18 @@ export class CurrencyManagerApp extends FormApplication {
         };
     }
 
+    // ── Form data override — read img path from data-src, not hidden input ────
+
+    async _getSubmitData(updateData = {}) {
+        const data = await super._getSubmitData(updateData);
+        // Read the stored relative path from data-src on each icon img;
+        // reading .src directly would give a full absolute URL.
+        this.element.find(".currency-icon-img[data-id]").each((_, img) => {
+            data[`${img.dataset.id}.img`] = img.dataset.src || DEFAULT_CURRENCY_ICON;
+        });
+        return data;
+    }
+
     // ── Listeners ─────────────────────────────────────────────────────────────
 
     activateListeners(html) {
@@ -83,7 +99,22 @@ export class CurrencyManagerApp extends FormApplication {
         html.find(".currency-remove-btn").on("click", this._onRemove.bind(this));
         html.find(".currency-icon-img").on("click",   this._onPickIcon.bind(this));
 
-        // Disable/enable the Rate field based on "Converts Into" selection
+        // Live tint preview as user drags the colour wheel
+        html.find(".currency-tint-input").on("input change", ev => {
+            const row    = $(ev.currentTarget).closest("tr");
+            const imgEl  = row.find(".currency-icon-img")[0];
+            if (!imgEl) return;
+            const filter = tintColorToFilter(ev.currentTarget.value);
+            imgEl.style.filter = filter;
+        });
+
+        // Initialise tint preview on open
+        html.find(".currency-tint-input").each((_, inp) => {
+            const imgEl = $(inp).closest("tr").find(".currency-icon-img")[0];
+            if (imgEl) imgEl.style.filter = tintColorToFilter(inp.value);
+        });
+
+        // Disable Rate input when Converts Into = None
         html.find(".converts-to-select").each((_, el) => this._syncRateInput($(el)));
         html.find(".converts-to-select").on("change", ev => this._syncRateInput($(ev.currentTarget)));
     }
@@ -103,7 +134,6 @@ export class CurrencyManagerApp extends FormApplication {
         const currencies = foundry.utils.deepClone(getCustomCurrencies());
         if (currencies.length >= MAX_CUSTOM_CURRENCIES) return;
 
-        // Assign the first unused slot id (custom1 … custom5)
         const used = new Set(currencies.map(c => c.id));
         let nextId;
         for (let i = 1; i <= MAX_CUSTOM_CURRENCIES; i++) {
@@ -112,13 +142,15 @@ export class CurrencyManagerApp extends FormApplication {
         if (!nextId) return;
 
         currencies.push({
-            id:                nextId,
-            name:              "New Currency",
-            abbreviation:      "CC",
-            exchangeRate:      0,
-            img:               DEFAULT_CURRENCY_ICON,
-            visibility:        "always",
-            participateConvert: false,
+            id:           nextId,
+            name:         "New Currency",
+            abbreviation: "CC",
+            exchangeRate: 0,
+            img:          DEFAULT_CURRENCY_ICON,
+            tintColor:    "",
+            visibility:   "always",
+            convertsTo:   "none",
+            convertRate:  1,
         });
 
         await game.settings.set(MODULE_ID, "customCurrencies", currencies);
@@ -148,15 +180,19 @@ export class CurrencyManagerApp extends FormApplication {
 
     _onPickIcon(event) {
         event.preventDefault();
-        const imgEl   = event.currentTarget;
-        const inputEl = imgEl.closest(".currency-icon-cell").querySelector("input[type=hidden]");
+        const imgEl = event.currentTarget;
 
         new FilePicker({
             type:     "image",
-            current:  imgEl.src,
+            current:  imgEl.dataset.src || imgEl.getAttribute("src"),
             callback: (path) => {
-                imgEl.src     = path;
-                inputEl.value = path;
+                // Store the relative path in data-src; .src gives an absolute URL
+                imgEl.dataset.src = path;
+                imgEl.src         = path;
+                // Reapply tint filter to the newly selected icon
+                const row   = imgEl.closest("tr");
+                const tint  = row?.querySelector(".currency-tint-input")?.value ?? "";
+                imgEl.style.filter = tintColorToFilter(tint);
             },
         }).browse();
     }
@@ -164,17 +200,23 @@ export class CurrencyManagerApp extends FormApplication {
     // ── Save ──────────────────────────────────────────────────────────────────
 
     async _updateObject(event, formData) {
-        const existing  = getCustomCurrencies();
-        const expanded  = foundry.utils.expandObject(formData);
+        const existing = getCustomCurrencies();
+        const expanded = foundry.utils.expandObject(formData);
 
         const updated = existing.map(curr => {
             const d = expanded[curr.id] ?? {};
+            // tintColor: empty string = no tint; keep empty rather than defaulting
+            const tintRaw = d.tintColor ?? curr.tintColor ?? "";
+            const tintColor = (tintRaw === "#ffaa00" && !(curr.tintColor))
+                ? ""   // ignore the placeholder default when user never changed it
+                : tintRaw;
             return {
                 id:           curr.id,
                 name:         String(d.name         ?? curr.name),
                 abbreviation: String(d.abbreviation ?? curr.abbreviation),
                 exchangeRate: Number(d.exchangeRate  ?? curr.exchangeRate) || 0,
                 img:          String(d.img ?? curr.img ?? DEFAULT_CURRENCY_ICON),
+                tintColor,
                 visibility:   String(d.visibility   ?? curr.visibility),
                 convertsTo:   String(d.convertsTo   ?? curr.convertsTo ?? "none"),
                 convertRate:  Math.max(1, Number(d.convertRate ?? curr.convertRate) || 1),

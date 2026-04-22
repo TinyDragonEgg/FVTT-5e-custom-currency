@@ -99,6 +99,36 @@ export function patch_currencyConversion() {
     if (CONFIG.DND5E.currencies.pp) CONFIG.DND5E.currencies.pp.conversion = g("gp-pp");
 }
 
+// ─── Icon tint helper ────────────────────────────────────────────────────────
+
+/**
+ * Convert a hex tint color to a CSS filter string using hue-rotate.
+ * The default gold coin icon has a hue of ~38 degrees; we rotate from there.
+ * Returns "" when no tint is set or the color is effectively neutral.
+ */
+export function tintColorToFilter(hexColor) {
+    if (!hexColor) return "";
+    const r = parseInt(hexColor.slice(1, 3), 16) / 255;
+    const g = parseInt(hexColor.slice(3, 5), 16) / 255;
+    const b = parseInt(hexColor.slice(5, 7), 16) / 255;
+    if (isNaN(r) || isNaN(g) || isNaN(b)) return "";
+
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    let h = 0;
+    if (max !== min) {
+        const d = max - min;
+        switch (max) {
+            case r: h = ((g - b) / d + (g < b ? 6 : 0)) * 60; break;
+            case g: h = ((b - r) / d + 2) * 60; break;
+            case b: h = ((r - g) / d + 4) * 60; break;
+        }
+    }
+    const BASE_HUE = 38; // approximate hue of the default gold coin icon
+    const rotate = Math.round(((h - BASE_HUE) + 360) % 360);
+    return rotate === 0 ? "" : `hue-rotate(${rotate}deg)`;
+}
+
 // ─── Sheet re-render ──────────────────────────────────────────────────────────
 
 /** Re-render all currently open actor sheets so currency changes show live. */

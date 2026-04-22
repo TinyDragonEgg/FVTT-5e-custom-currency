@@ -31,18 +31,26 @@
     background: rgba(0,0,0,0.04);
 }
 
-.currency-manager-table .col-icon  { width: 48px; text-align: center; }
-.currency-manager-table .col-abrv  { width: 70px; }
-.currency-manager-table .col-rate  { width: 120px; }
-.currency-manager-table .col-vis   { width: 155px; }
-.currency-manager-table .col-conv  { width: 60px;  text-align: center; }
-.currency-manager-table .col-del   { width: 32px;  text-align: center; }
+.currency-manager-table .col-icon         { width: 72px; text-align: center; }
+.currency-manager-table .col-abrv         { width: 70px; }
+.currency-manager-table .col-rate         { width: 100px; }
+.currency-manager-table .col-vis          { width: 150px; }
+.currency-manager-table .col-converts-to  { width: 145px; }
+.currency-manager-table .col-convert-rate { width: 55px; text-align: center; }
+.currency-manager-table .col-del          { width: 32px;  text-align: center; }
 
-.currency-manager-table .col-abrv input  { width: 60px; }
-.currency-manager-table .col-rate input  { width: 90px; }
+.currency-manager-table .col-abrv input         { width: 60px; }
+.currency-manager-table .col-rate input         { width: 80px; }
+.currency-manager-table .col-convert-rate input { width: 46px; }
 
 /* Icon picker */
-.currency-icon-cell { text-align: center; }
+.currency-icon-cell {
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+}
 
 .currency-icon-img {
     width: 36px;
@@ -60,6 +68,19 @@
     border-color: #555;
     box-shadow: 0 0 4px rgba(0,0,0,0.3);
 }
+
+/* Tint colour picker — compact swatch below the icon */
+.currency-tint-input {
+    width: 36px;
+    height: 18px;
+    padding: 0;
+    border: 1px solid #aaa;
+    border-radius: 3px;
+    cursor: pointer;
+    background: none;
+}
+.currency-tint-input::-webkit-color-swatch-wrapper { padding: 1px; }
+.currency-tint-input::-webkit-color-swatch         { border-radius: 2px; border: none; }
 
 /* Remove button */
 .currency-remove-btn {

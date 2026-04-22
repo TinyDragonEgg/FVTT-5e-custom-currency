@@ -12,6 +12,7 @@ import {
     getCpPerGp,
     patch_currencyNames,
     patch_currencyConversion,
+    tintColorToFilter,
 } from "./shared.js";
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
@@ -82,18 +83,21 @@ function injectCustomCurrencies(html, actor) {
         if (vis === "never") continue;
         if (vis === "owned" && amount <= 0) continue;
 
-        const imgSrc = curr.img || DEFAULT_CURRENCY_ICON;
+        const imgSrc    = curr.img || DEFAULT_CURRENCY_ICON;
+        const tintStyle = tintColorToFilter(curr.tintColor)
+            ? ` style="filter:${tintColorToFilter(curr.tintColor)}"`
+            : "";
 
         const li = isV2
             ? $(`<li class="currency ${curr.id} custom-currency" aria-label="${curr.name}">
-                    <img  class="currency-custom-icon" src="${imgSrc}" title="${curr.name}">
+                    <img  class="currency-custom-icon" src="${imgSrc}" title="${curr.name}"${tintStyle}>
                     <input class="uninput" type="number"
                            data-flag-currency="${curr.id}"
                            value="${amount}" placeholder="--">
                     <span class="denomination ${curr.id}" aria-hidden="true">${curr.abbreviation}</span>
                  </li>`)
             : $(`<li class="currency-item ${curr.id} custom-currency">
-                    <img  class="currency-custom-icon" src="${imgSrc}" title="${curr.name}">
+                    <img  class="currency-custom-icon" src="${imgSrc}" title="${curr.name}"${tintStyle}>
                     <input type="number"
                            data-flag-currency="${curr.id}"
                            value="${amount}" placeholder="0" min="0">
