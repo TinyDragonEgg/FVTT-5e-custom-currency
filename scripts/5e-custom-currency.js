@@ -71,10 +71,13 @@ function applyStandardVisibility(html, actor) {
  * Values come from actor flags; icons are per-currency user-configurable.
  */
 function injectCustomCurrencies(html, actor) {
-    const container = html.find("ol.currency-list, ul.currency").first();
+    // dnd5e V1 sheet: ol.currency-list  (li.currency-item)
+    // dnd5e V2 sheet: ul.currency       (li.currency)       [dnd5e ≤3.x]
+    // dnd5e V2 sheet: ul.currency-list  (li.currency)       [dnd5e 4.x]
+    const container = html.find("ol.currency-list, ul.currency-list, ul.currency").first();
     if (!container.length) return;
 
-    const isV2 = container.is("ul");
+    const isV1 = container.is("ol");
 
     for (const curr of getCustomCurrencies()) {
         const vis    = curr.visibility ?? "always";
@@ -84,20 +87,15 @@ function injectCustomCurrencies(html, actor) {
         if (vis === "owned" && amount <= 0) continue;
 
         const imgSrc    = curr.img || DEFAULT_CURRENCY_ICON;
-        const tintStyle = tintColorToFilter(curr.tintColor)
-            ? ` style="filter:${tintColorToFilter(curr.tintColor)}"`
-            : "";
+        const filter    = tintColorToFilter(curr.tintColor);
+        const imgStyle  = filter ? ` style="filter:${filter}"` : "";
 
-        const li = isV2
-            ? $(`<li class="currency ${curr.id} custom-currency" aria-label="${curr.name}">
-                    <img  class="currency-custom-icon" src="${imgSrc}" title="${curr.name}"${tintStyle}>
-                    <input class="uninput" type="number"
-                           data-flag-currency="${curr.id}"
-                           value="${amount}" placeholder="--">
-                    <span class="denomination ${curr.id}" aria-hidden="true">${curr.abbreviation}</span>
-                 </li>`)
-            : $(`<li class="currency-item ${curr.id} custom-currency">
-                    <img  class="currency-custom-icon" src="${imgSrc}" title="${curr.name}"${tintStyle}>
+        const liClass   = isV1
+            ? `currency-item ${curr.id} custom-currency`
+            : `currency ${curr.id} custom-currency`;
+
+        const li = $(`<li class="${liClass}" data-denomination="${curr.id}" aria-label="${curr.name}">
+                    <img class="currency-custom-icon" src="${imgSrc}" title="${curr.name}"${imgStyle} alt="${curr.name}">
                     <input type="number"
                            data-flag-currency="${curr.id}"
                            value="${amount}" placeholder="0" min="0">
@@ -276,23 +274,23 @@ export async function syncItemPiles() {
     );
 
     const entries = customs.map(curr => {
-        // exchangeRate must be > 0 for Item Piles to display prices in the
-        // merchant price column. If the user has set a GP value use it;
-        // otherwise fall back to a tiny non-zero so the price shows rather
-        // than being blank (Item Piles treats 0 as "no value").
-        const exchangeRate = (curr.exchangeRate && curr.exchangeRate > 0)
-            ? curr.exchangeRate
-            : 0.0001;
+        // exchangeRate > 0 required for Item Piles to show prices in the
+        // merchant price column; fall back to tiny non-zero when not set.
+        const exchangeRate = (curr.exchangeRate > 0) ? curr.exchangeRate : 0.0001;
+
+        // Item Piles' Svelte UI needs an absolute path for icons to resolve.
+        const rawImg = curr.img || DEFAULT_CURRENCY_ICON;
+        const img = rawImg.startsWith("http") || rawImg.startsWith("/")
+            ? rawImg
+            : `/${rawImg}`;
 
         return {
             type:         "attribute",
             name:         curr.name,
-            img:          curr.img || DEFAULT_CURRENCY_ICON,
-            // Use the slot id as the abbreviation key to avoid collisions with
-            // standard dnd5e currency keys (sp, gp, etc.)
+            img,
             abbreviation: `{#}${curr.abbreviation}`,
-            // Provide a unique key so Item Piles can distinguish our currencies
-            id:           `${MODULE_ID}.${curr.id}`,
+            // NO custom id field — Item Piles matches currencies by path;
+            // adding a non-standard id key broke abbreviation lookups.
             data:         { path: `flags.${MODULE_ID}.${curr.id}` },
             primary:      false,
             exchangeRate,

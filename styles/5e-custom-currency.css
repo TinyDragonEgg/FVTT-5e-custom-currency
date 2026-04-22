@@ -115,22 +115,24 @@
    Character sheet — injected custom currency rows
    ═══════════════════════════════════════════════════════════════════ */
 
-/* Icon shown next to the denomination label */
-li.currency.custom-currency .currency-custom-icon,
-li.currency-item.custom-currency .currency-custom-icon {
-    width: 14px;
-    height: 14px;
-    object-fit: contain;
-    vertical-align: middle;
-    margin-right: 2px;
-    border-radius: 2px;
-}
-
-/* Ensure injected rows inherit the sheet's flex/grid layout */
+/* Injected custom currency rows — match dnd5e's own li.currency layout */
 li.currency.custom-currency,
 li.currency-item.custom-currency {
     display: flex;
+    flex-direction: column;
     align-items: center;
+    gap: 2px;
+}
+
+/* Icon — sized to match dnd5e 4.x currency icons (~28px) */
+li.currency.custom-currency .currency-custom-icon,
+li.currency-item.custom-currency .currency-custom-icon {
+    display: block !important;
+    width: 28px !important;
+    height: 28px !important;
+    object-fit: contain;
+    border-radius: 3px;
+    flex-shrink: 0;
 }
 
 /* ═══════════════════════════════════════════════════════════════════
