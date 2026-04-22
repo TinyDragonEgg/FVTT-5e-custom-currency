@@ -1,38 +1,33 @@
-# 5E Custom Currency module for Foundry VTT
+# 5E Custom Currency — FoundryVTT Module
 
-Adjust currency name and conversion rates for 5th Edition D&D
+Add and manage custom currencies (Frog Coins, Spirit Coins, etc.) alongside the standard D&D 5e denominations. Features per-currency icons, hue tinting, visibility controls, custom-to-custom conversion chains, Item Piles sync, wealth total, and party overview support.
 
 ## Installation
 
 1. Open Foundry's Setup screen
-2. Switch to the "Add-On Modules" tab
-3. Click "Install Module"
-4. Paste `https://raw.githubusercontent.com/TinyDragonEgg/FVTT-5e-custom-currency/master/module.json` into the "Manifest URL" field
-5. Click "Install"
-
-## Notes
-
-* On saving the settings, reopen any character sheets in order to update settings.
-
-### Changing Currency Names on Character Sheet
-* This is mostly superficial as many systems depend on the current currency paradigm, but on your character sheets, it will reference your custom names rather than the D&D 5E standards.
+2. Switch to the **Add-On Modules** tab
+3. Click **Install Module**
+4. Paste the manifest URL into the **Manifest URL** field at the bottom:
+   ```
+   https://github.com/TinyDragonEgg/FVTT-5e-custom-currency/releases/latest/download/module.json
+   ```
+5. Click **Install**
 
 ## Compatibility
 
-Currently supports any dnd5e character sheet that uses the default currency names and exchange rates from the DND5E config.js file.
+- **FoundryVTT:** v12+ (verified v13)
+- **dnd5e system:** 3.0.0+ (verified 4.0.0)
 
 ### Confirmed Compatible
-* Default 5e Character Sheet
-* Tidy5e Sheet
-* DNDBeyond Character Sheet for 5e
-* D&D 5e OGL Character Sheet
-* Party Overview
+- Default dnd5e Character Sheet (V1 & V2)
+- Tidy5e Sheet
+- Party Overview
+- Item Piles (optional sync)
 
 ### Not Compatible
-
-* Compact DnDBeyond 5e Character Sheet
-* LootSheet5e
-* Pick-Up-Stix
+- Compact DnDBeyond 5e Character Sheet
+- LootSheet5e
+- Pick-Up-Stix
 
 ### Not Compatible if using Independent Currencies
-* Lazy Money
+- Lazy Money
