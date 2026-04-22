@@ -23,8 +23,9 @@ jobs:
         run: |
           VERSION=${{ steps.version.outputs.VERSION }}
           DOWNLOAD="https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/module.zip"
-          jq --arg v "$VERSION" --arg d "$DOWNLOAD" \
-            '.version = $v | .download = $d' \
+          MANIFEST="https://github.com/${{ github.repository }}/releases/latest/download/module.json"
+          jq --arg v "$VERSION" --arg d "$DOWNLOAD" --arg m "$MANIFEST" \
+            '.version = $v | .download = $d | .manifest = $m' \
             module.json > module.json.tmp && mv module.json.tmp module.json
 
       - name: Package module zip

@@ -4,7 +4,7 @@
     "title": "5E Custom Currency",
     "description": "Set custom currency names and exchange rates for D&D 5E default currency.",
     "authors": [{ "name": "InfraredAces" }],
-    "version": "2.0.0",
+    "version": "2.2.1",
     "library": "false",
     "compatibility": {
         "minimum": "12",
@@ -36,8 +36,8 @@
         ]
     },
     "url": "https://github.com/TinyDragonEgg/FVTT-5e-custom-currency",
-    "manifest": "https://raw.githubusercontent.com/TinyDragonEgg/FVTT-5e-custom-currency/master/module.json",
-    "download": "https://github.com/TinyDragonEgg/FVTT-5e-custom-currency/archive/master.zip",
+    "manifest": "https://github.com/TinyDragonEgg/FVTT-5e-custom-currency/releases/latest/download/module.json",
+    "download": "https://github.com/TinyDragonEgg/FVTT-5e-custom-currency/releases/latest/download/module.zip",
     "media": [
         {
             "type": "icon",
