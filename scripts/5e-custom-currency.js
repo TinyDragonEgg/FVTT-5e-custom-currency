@@ -107,15 +107,38 @@ function injectCustomCurrencies(html, actor) {
 }
 
 /**
- * Wire up change events on injected custom currency inputs so that editing
- * a value persists it to actor flags immediately.
+ * Wire up events on injected custom currency inputs.
+ *
+ * We listen on both "change" AND "blur" so the flag is flushed to the
+ * database even when the player clicks a button in another Foundry window
+ * (e.g. the Item Piles merchant) without first clicking away from the input.
+ * Without this, Item Piles can read a stale flag value mid-purchase.
  */
 function bindCustomCurrencyInputs(html, actor) {
-    html.find("[data-flag-currency]").on("change", function () {
-        const key   = $(this).data("flag-currency");
-        const value = parseInt($(this).val()) || 0;
-        actor.setFlag(MODULE_ID, key, value);
+    html.find("[data-flag-currency]").on("change blur", function () {
+        const key      = $(this).data("flag-currency");
+        const newValue = parseInt($(this).val()) || 0;
+        const current  = actor.getFlag(MODULE_ID, key) ?? 0;
+        // Skip the update if the value hasn't actually changed to avoid
+        // unnecessary server round-trips on every focus-loss.
+        if (newValue !== current) actor.setFlag(MODULE_ID, key, newValue);
     });
+}
+
+/**
+ * After Item Piles (or anything else) updates an actor's flags, sync the
+ * displayed values in any open sheet without waiting for a full re-render.
+ */
+function refreshCustomCurrencyInputs(actor) {
+    for (const app of Object.values(ui.windows ?? {})) {
+        if (actorFromSheet(app) !== actor) continue;
+        const html = app.element instanceof $ ? app.element : $(app.element);
+        html.find("[data-flag-currency]").each(function () {
+            const key   = $(this).data("flag-currency");
+            const value = actor.getFlag(MODULE_ID, key) ?? 0;
+            $(this).val(value);
+        });
+    }
 }
 
 // ─── Wealth total ─────────────────────────────────────────────────────────────
@@ -369,6 +392,14 @@ Hooks.on("ready", () => {
 Hooks.on("renderActorSheet5eCharacter",  handleCharacterSheet);
 // Character sheet — dnd5e V2 (ApplicationV2, default since dnd5e 3.2 / sole sheet in 4.x)
 Hooks.on("renderActorSheet5eCharacter2", handleCharacterSheet);
+
+// When an actor's flags change (e.g. Item Piles deducts currency after a
+// purchase), immediately refresh the displayed values in any open sheet
+// without waiting for the next full re-render.
+Hooks.on("updateActor", (actor, changes) => {
+    if (!changes?.flags?.[MODULE_ID]) return;
+    refreshCustomCurrencyInputs(actor);
+});
 
 // ─── Compatibility: Tidy5E NPC sheet ─────────────────────────────────────────
 
