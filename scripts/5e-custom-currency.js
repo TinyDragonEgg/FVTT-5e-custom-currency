@@ -158,11 +158,15 @@ function injectWealthTotal(html, actor) {
 // ─── Convert currency override ────────────────────────────────────────────────
 
 /**
- * Override Actor5e.convertCurrency to fold participating custom currencies
- * into the CP pool before the standard chain runs.
+ * Override Actor5e.convertCurrency to handle custom-currency chains.
  *
- * Conversion: custom amount × exchangeRate (GP/coin) × cpPerGp = CP value.
- * This lets the standard chain (cp→sp→ep→gp→pp) handle rounding naturally.
+ * Each custom currency has a `convertsTo` field:
+ *   "none"     → skip (not converted)
+ *   "standard" → fold into CP pool (standard chain handles the rest)
+ *   "customX"  → fold into another custom currency at convertRate:1
+ *
+ * Chains are resolved with up to MAX_CUSTOM_CURRENCIES passes so that
+ * e.g. FrogCoins→SpiritCoins→(none) all converts in one click.
  */
 export function patchConvertCurrency() {
     const ActorClass = dnd5e?.documents?.Actor5e ?? CONFIG.Actor.documentClass;
@@ -171,33 +175,78 @@ export function patchConvertCurrency() {
     const original = ActorClass.prototype.convertCurrency;
 
     ActorClass.prototype.convertCurrency = async function () {
-        // Skip custom-currency folding when currencies are independent
-        if (!game.settings.get(MODULE_ID, "depCur")) {
+        const customs = getCustomCurrencies().filter(
+            c => c.convertsTo && c.convertsTo !== "none"
+        );
+
+        // Migration: also pick up old-style participateConvert if convertsTo absent
+        const legacyCustoms = getCustomCurrencies().filter(
+            c => (!c.convertsTo || c.convertsTo === "none") && c.participateConvert && c.exchangeRate > 0
+        );
+
+        if (customs.length === 0 && legacyCustoms.length === 0) {
             return original.call(this);
         }
 
-        const customs = getCustomCurrencies().filter(
-            c => c.participateConvert && c.exchangeRate > 0
-        );
-        if (customs.length === 0) return original.call(this);
+        // ── Snapshot current amounts ──────────────────────────────────────────
+        const amounts = {};
+        for (const c of getCustomCurrencies()) {
+            amounts[c.id] = this.getFlag(MODULE_ID, c.id) ?? 0;
+        }
+        amounts["__cp__"] = this.system?.currency?.cp ?? 0;
 
-        const cpPerGp  = getCpPerGp();
-        const updates  = {};
+        // ── Legacy participateConvert path ────────────────────────────────────
+        if (legacyCustoms.length > 0) {
+            const cpPerGp = getCpPerGp();
+            for (const curr of legacyCustoms) {
+                if (amounts[curr.id] <= 0) continue;
+                amounts["__cp__"] += Math.round(amounts[curr.id] * curr.exchangeRate * cpPerGp);
+                amounts[curr.id]   = 0;
+            }
+        }
 
-        for (const curr of customs) {
-            const amount = this.getFlag(MODULE_ID, curr.id) ?? 0;
-            if (amount <= 0) continue;
+        // ── Chain resolution (up to N passes for chains up to N deep) ─────────
+        const MAX_PASSES = getCustomCurrencies().length + 1;
+        for (let pass = 0; pass < MAX_PASSES; pass++) {
+            let changed = false;
+            for (const curr of customs) {
+                const rate   = Math.max(1, curr.convertRate ?? 1);
+                const amount = amounts[curr.id] ?? 0;
+                if (amount < rate) continue;
 
-            // Convert to CP and add to the CP pool; the standard chain takes it from there
-            const cpGain = Math.round(amount * curr.exchangeRate * cpPerGp);
-            updates[`flags.${MODULE_ID}.${curr.id}`] = 0;
-            updates["system.currency.cp"] =
-                (updates["system.currency.cp"] ?? this.system?.currency?.cp ?? 0) + cpGain;
+                const whole     = Math.floor(amount / rate);
+                amounts[curr.id] = amount % rate;
+                changed          = true;
+
+                if (curr.convertsTo === "standard") {
+                    // 1 whole unit = 1 CP
+                    amounts["__cp__"] += whole;
+                } else {
+                    amounts[curr.convertsTo] = (amounts[curr.convertsTo] ?? 0) + whole;
+                }
+            }
+            if (!changed) break;
+        }
+
+        // ── Build update payload ──────────────────────────────────────────────
+        const updates = {};
+        for (const c of getCustomCurrencies()) {
+            const orig = this.getFlag(MODULE_ID, c.id) ?? 0;
+            if (amounts[c.id] !== orig) {
+                updates[`flags.${MODULE_ID}.${c.id}`] = amounts[c.id];
+            }
+        }
+        const origCp = this.system?.currency?.cp ?? 0;
+        if (amounts["__cp__"] !== origCp) {
+            updates["system.currency.cp"] = amounts["__cp__"];
         }
 
         if (Object.keys(updates).length > 0) await this.update(updates);
 
-        return original.call(this);
+        // Run the standard chain (cp→sp→ep→gp→pp) only when depCur is on
+        if (game.settings.get(MODULE_ID, "depCur")) {
+            return original.call(this);
+        }
     };
 
     console.log("5e-custom-currency | Patched convertCurrency");

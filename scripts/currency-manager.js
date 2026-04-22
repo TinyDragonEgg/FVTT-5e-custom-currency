@@ -42,16 +42,35 @@ export class CurrencyManagerApp extends FormApplication {
 
     getData() {
         const raw = getCustomCurrencies();
-        const currencies = raw.map(c => ({
-            ...c,
-            img:      c.img || DEFAULT_CURRENCY_ICON,
-            visAlways: c.visibility === "always",
-            visOwned:  c.visibility === "owned",
-            visNever:  c.visibility === "never",
-        }));
+        const currencies = raw.map(c => {
+            // Migration: old participateConvert=true → convertsTo="standard"
+            const convertsTo = c.convertsTo
+                ?? (c.participateConvert ? "standard" : "none");
+            return {
+                ...c,
+                img:         c.img || DEFAULT_CURRENCY_ICON,
+                convertsTo,
+                convertRate: c.convertRate ?? 1,
+                visAlways:   c.visibility === "always",
+                visOwned:    c.visibility === "owned",
+                visNever:    c.visibility === "never",
+                // Build dropdown options for "Converts Into" (other slots + special values)
+                convertOptions: [
+                    { value: "none",     label: "None",          selected: convertsTo === "none" },
+                    { value: "standard", label: "Standard (CP)", selected: convertsTo === "standard" },
+                    ...raw
+                        .filter(other => other.id !== c.id)
+                        .map(other => ({
+                            value:    other.id,
+                            label:    other.name || other.id,
+                            selected: convertsTo === other.id,
+                        })),
+                ],
+            };
+        });
         return {
             currencies,
-            canAdd:  currencies.length < MAX_CUSTOM_CURRENCIES,
+            canAdd:   currencies.length < MAX_CUSTOM_CURRENCIES,
             maxSlots: MAX_CUSTOM_CURRENCIES,
         };
     }
@@ -63,6 +82,18 @@ export class CurrencyManagerApp extends FormApplication {
         html.find(".currency-add-btn").on("click",    this._onAdd.bind(this));
         html.find(".currency-remove-btn").on("click", this._onRemove.bind(this));
         html.find(".currency-icon-img").on("click",   this._onPickIcon.bind(this));
+
+        // Disable/enable the Rate field based on "Converts Into" selection
+        html.find(".converts-to-select").each((_, el) => this._syncRateInput($(el)));
+        html.find(".converts-to-select").on("change", ev => this._syncRateInput($(ev.currentTarget)));
+    }
+
+    _syncRateInput(selectEl) {
+        const row      = selectEl.closest("tr");
+        const rateInput = row.find("input[name$='.convertRate']");
+        const isNone   = selectEl.val() === "none";
+        rateInput.prop("disabled", isNone);
+        rateInput.css("opacity", isNone ? 0.35 : 1);
     }
 
     // ── Add ───────────────────────────────────────────────────────────────────
@@ -139,15 +170,14 @@ export class CurrencyManagerApp extends FormApplication {
         const updated = existing.map(curr => {
             const d = expanded[curr.id] ?? {};
             return {
-                id:                curr.id,
-                name:              String(d.name              ?? curr.name),
-                abbreviation:      String(d.abbreviation      ?? curr.abbreviation),
-                exchangeRate:      Number(d.exchangeRate      ?? curr.exchangeRate) || 0,
-                img:               String(d.img ?? curr.img ?? DEFAULT_CURRENCY_ICON),
-                visibility:        String(d.visibility        ?? curr.visibility),
-                participateConvert: d.participateConvert === true
-                                 || d.participateConvert === "true"
-                                 || d.participateConvert === "on",
+                id:           curr.id,
+                name:         String(d.name         ?? curr.name),
+                abbreviation: String(d.abbreviation ?? curr.abbreviation),
+                exchangeRate: Number(d.exchangeRate  ?? curr.exchangeRate) || 0,
+                img:          String(d.img ?? curr.img ?? DEFAULT_CURRENCY_ICON),
+                visibility:   String(d.visibility   ?? curr.visibility),
+                convertsTo:   String(d.convertsTo   ?? curr.convertsTo ?? "none"),
+                convertRate:  Math.max(1, Number(d.convertRate ?? curr.convertRate) || 1),
             };
         });
 
