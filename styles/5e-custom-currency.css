@@ -69,6 +69,16 @@
     box-shadow: 0 0 4px rgba(0,0,0,0.3);
 }
 
+/* Hidden text input that carries the img path through FormDataExtended */
+.currency-img-input {
+    position: absolute;
+    opacity: 0;
+    width: 1px;
+    height: 1px;
+    pointer-events: none;
+    overflow: hidden;
+}
+
 /* Tint colour picker — compact swatch below the icon */
 .currency-tint-input {
     width: 36px;

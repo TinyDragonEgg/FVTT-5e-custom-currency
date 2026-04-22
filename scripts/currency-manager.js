@@ -34,7 +34,7 @@ export class CurrencyManagerApp extends FormApplication {
             width:          780,
             height:         "auto",
             resizable:      true,
-            closeOnSubmit:  true,
+            closeOnSubmit:  false,  // handled manually in _updateObject
             submitOnChange: false,
         });
     }
@@ -77,18 +77,6 @@ export class CurrencyManagerApp extends FormApplication {
             canAdd:   currencies.length < MAX_CUSTOM_CURRENCIES,
             maxSlots: MAX_CUSTOM_CURRENCIES,
         };
-    }
-
-    // ── Form data override — read img path from data-src, not hidden input ────
-
-    async _getSubmitData(updateData = {}) {
-        const data = await super._getSubmitData(updateData);
-        // Read the stored relative path from data-src on each icon img;
-        // reading .src directly would give a full absolute URL.
-        this.element.find(".currency-icon-img[data-id]").each((_, img) => {
-            data[`${img.dataset.id}.img`] = img.dataset.src || DEFAULT_CURRENCY_ICON;
-        });
-        return data;
     }
 
     // ── Listeners ─────────────────────────────────────────────────────────────
@@ -180,18 +168,20 @@ export class CurrencyManagerApp extends FormApplication {
 
     _onPickIcon(event) {
         event.preventDefault();
-        const imgEl = event.currentTarget;
+        const imgEl   = event.currentTarget;
+        const row     = imgEl.closest("tr");
+        // Use the text input's value as the current path (avoids absolute-URL issue with img.src)
+        const pathInput = row?.querySelector(".currency-img-input");
+        const current   = pathInput?.value || DEFAULT_CURRENCY_ICON;
 
         new FilePicker({
             type:     "image",
-            current:  imgEl.dataset.src || imgEl.getAttribute("src"),
+            current,
             callback: (path) => {
-                // Store the relative path in data-src; .src gives an absolute URL
-                imgEl.dataset.src = path;
-                imgEl.src         = path;
+                imgEl.src = path;
+                if (pathInput) pathInput.value = path;
                 // Reapply tint filter to the newly selected icon
-                const row   = imgEl.closest("tr");
-                const tint  = row?.querySelector(".currency-tint-input")?.value ?? "";
+                const tint = row?.querySelector(".currency-tint-input")?.value ?? "";
                 imgEl.style.filter = tintColorToFilter(tint);
             },
         }).browse();
@@ -229,6 +219,9 @@ export class CurrencyManagerApp extends FormApplication {
         try {
             if (game.settings.get(MODULE_ID, "depCur")) patch_currencyConversion();
         } catch { /* exchange rate settings may not exist yet */ }
+
+        // Close before rerendering so V13's _onSubmit can't re-render the form
+        await this.close();
 
         rerenderSheets();
         await syncItemPilesIfActive();

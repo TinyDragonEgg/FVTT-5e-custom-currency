@@ -26,12 +26,17 @@
       <tr data-id="{{id}}">
 
         <td class="col-icon currency-icon-cell">
-          {{!-- data-src holds the relative path; .src gives an absolute URL --}}
           <img class="currency-icon-img"
                src="{{img}}"
-               data-src="{{img}}"
                data-id="{{id}}"
                title="Click to change icon">
+          {{!-- Text input holds the relative path; always included by FormDataExtended --}}
+          <input type="text"
+                 name="{{id}}.img"
+                 value="{{img}}"
+                 class="currency-img-input"
+                 aria-hidden="true"
+                 tabindex="-1">
           <input type="color"
                  name="{{id}}.tintColor"
                  class="currency-tint-input"
