@@ -1,0 +1,85 @@
+<form class="currency-manager" autocomplete="off">
+
+  <p class="notes hint">
+    Add up to {{maxSlots}} custom currency slots. Values are stored per-actor as flags.
+    Click an icon to change it. Exchange rate = GP value of 1 coin (e.g. 0.2 means 5&nbsp;coins&nbsp;=&nbsp;1&nbsp;GP; 0 disables conversion).
+  </p>
+
+  {{#if currencies.length}}
+  <table class="currency-manager-table">
+    <thead>
+      <tr>
+        <th class="col-icon">Icon</th>
+        <th class="col-name">Name</th>
+        <th class="col-abrv">Abbr.</th>
+        <th class="col-rate">Exchange Rate<br><small>(GP value of 1 coin)</small></th>
+        <th class="col-vis">Visibility</th>
+        <th class="col-conv" title="Include in the Convert Currency button">Convert</th>
+        <th class="col-del"></th>
+      </tr>
+    </thead>
+    <tbody>
+      {{#each currencies}}
+      <tr data-id="{{id}}">
+
+        <td class="col-icon currency-icon-cell">
+          <img class="currency-icon-img" src="{{img}}" title="Click to change icon" data-id="{{id}}">
+          <input type="hidden" name="{{id}}.img" value="{{img}}">
+        </td>
+
+        <td class="col-name">
+          <input type="text" name="{{id}}.name" value="{{name}}" placeholder="Name" required>
+        </td>
+
+        <td class="col-abrv">
+          <input type="text" name="{{id}}.abbreviation" value="{{abbreviation}}" placeholder="GP" maxlength="6">
+        </td>
+
+        <td class="col-rate">
+          <input type="number" name="{{id}}.exchangeRate" value="{{exchangeRate}}"
+                 step="0.0001" min="0" placeholder="0">
+        </td>
+
+        <td class="col-vis">
+          <select name="{{id}}.visibility">
+            <option value="always" {{#if visAlways}}selected{{/if}}>Always Visible</option>
+            <option value="owned"  {{#if visOwned}}selected{{/if}}>Visible if Non-Zero</option>
+            <option value="never"  {{#if visNever}}selected{{/if}}>Never Visible</option>
+          </select>
+        </td>
+
+        <td class="col-conv">
+          <input type="checkbox" name="{{id}}.participateConvert"
+                 {{#if participateConvert}}checked{{/if}}
+                 title="Fold into GP when Convert Currency is clicked">
+        </td>
+
+        <td class="col-del">
+          <a class="currency-remove-btn" data-id="{{id}}" title="Remove this currency slot">
+            <i class="fas fa-trash"></i>
+          </a>
+        </td>
+
+      </tr>
+      {{/each}}
+    </tbody>
+  </table>
+  {{else}}
+  <p class="notification info">No custom currencies configured yet.</p>
+  {{/if}}
+
+  <div class="currency-manager-footer flexrow">
+    {{#if canAdd}}
+    <button type="button" class="currency-add-btn">
+      <i class="fas fa-plus"></i> Add Currency
+    </button>
+    {{else}}
+    <span class="notification warn" style="flex:1">Maximum of {{maxSlots}} slots reached.</span>
+    {{/if}}
+
+    <button type="submit" class="save-btn">
+      <i class="fas fa-save"></i> Save
+    </button>
+  </div>
+
+</form>

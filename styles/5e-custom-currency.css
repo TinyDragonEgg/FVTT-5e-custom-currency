@@ -1,0 +1,115 @@
+/* ═══════════════════════════════════════════════════════════════════
+   Currency Manager dialog
+   ═══════════════════════════════════════════════════════════════════ */
+
+.currency-manager .notes {
+    margin-bottom: 0.5em;
+    font-size: 0.85em;
+    color: #666;
+}
+
+.currency-manager-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 0.5em;
+}
+
+.currency-manager-table th,
+.currency-manager-table td {
+    padding: 4px 6px;
+    vertical-align: middle;
+}
+
+.currency-manager-table thead th {
+    border-bottom: 2px solid #999;
+    font-weight: bold;
+    font-size: 0.85em;
+    text-align: left;
+}
+
+.currency-manager-table tbody tr:nth-child(even) {
+    background: rgba(0,0,0,0.04);
+}
+
+.currency-manager-table .col-icon  { width: 48px; text-align: center; }
+.currency-manager-table .col-abrv  { width: 70px; }
+.currency-manager-table .col-rate  { width: 120px; }
+.currency-manager-table .col-vis   { width: 155px; }
+.currency-manager-table .col-conv  { width: 60px;  text-align: center; }
+.currency-manager-table .col-del   { width: 32px;  text-align: center; }
+
+.currency-manager-table .col-abrv input  { width: 60px; }
+.currency-manager-table .col-rate input  { width: 90px; }
+
+/* Icon picker */
+.currency-icon-cell { text-align: center; }
+
+.currency-icon-img {
+    width: 36px;
+    height: 36px;
+    object-fit: contain;
+    cursor: pointer;
+    border: 1px solid #aaa;
+    border-radius: 4px;
+    padding: 2px;
+    background: #f0f0e0;
+    transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.currency-icon-img:hover {
+    border-color: #555;
+    box-shadow: 0 0 4px rgba(0,0,0,0.3);
+}
+
+/* Remove button */
+.currency-remove-btn {
+    cursor: pointer;
+    color: #a33;
+    font-size: 1em;
+}
+.currency-remove-btn:hover { color: #d00; }
+
+/* Footer */
+.currency-manager-footer {
+    margin-top: 6px;
+    gap: 8px;
+    align-items: center;
+}
+
+.currency-manager-footer button {
+    flex: 0 0 auto;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   Character sheet — injected custom currency rows
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* Icon shown next to the denomination label */
+li.currency.custom-currency .currency-custom-icon,
+li.currency-item.custom-currency .currency-custom-icon {
+    width: 14px;
+    height: 14px;
+    object-fit: contain;
+    vertical-align: middle;
+    margin-right: 2px;
+    border-radius: 2px;
+}
+
+/* Ensure injected rows inherit the sheet's flex/grid layout */
+li.currency.custom-currency,
+li.currency-item.custom-currency {
+    display: flex;
+    align-items: center;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   Wealth total line injected below the currency bar
+   ═══════════════════════════════════════════════════════════════════ */
+
+.currency-wealth-total {
+    font-size: 0.8em;
+    color: #666;
+    text-align: right;
+    padding: 2px 4px 0;
+    width: 100%;
+}
