@@ -10,6 +10,8 @@ import {
     rerenderSheets,
 } from "./shared.js";
 
+import { CurrencyManagerApp } from "./currency-manager.js";
+
 // ─── Visibility choices (used by standard-currency visibility settings) ───────
 
 export const VISIBILITY_CHOICES = {
@@ -30,22 +32,12 @@ export function registerSettings() {
     });
 
     // ── Settings menu button ──────────────────────────────────────────────────
-    // Lazy-import so currency-manager.js is only evaluated after Foundry init.
     game.settings.registerMenu(MODULE_ID, "currencyManager", {
         name:       "5ecc.Manager.MenuName",
         label:      "5ecc.Manager.MenuLabel",
         hint:       "5ecc.Manager.MenuHint",
         icon:       "fas fa-coins",
-        type:       class LazyManagerProxy {
-            // Foundry instantiates this when the button is clicked.
-            // We open the real app instead and immediately close this stub.
-            constructor() {
-                import("./currency-manager.js").then(({ CurrencyManagerApp }) => {
-                    new CurrencyManagerApp().render(true);
-                });
-            }
-            render() {}
-        },
+        type:       CurrencyManagerApp,
         restricted: true,
     });
 
