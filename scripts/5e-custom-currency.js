@@ -275,15 +275,29 @@ export async function syncItemPiles() {
         c => !c.data?.path?.startsWith(`flags.${MODULE_ID}`)
     );
 
-    const entries = customs.map(curr => ({
-        type:         "attribute",
-        name:         curr.name,
-        img:          curr.img || DEFAULT_CURRENCY_ICON,
-        abbreviation: `{#}${curr.abbreviation}`,
-        data:         { path: `flags.${MODULE_ID}.${curr.id}` },
-        primary:      false,
-        exchangeRate: curr.exchangeRate ?? 0,
-    }));
+    const entries = customs.map(curr => {
+        // exchangeRate must be > 0 for Item Piles to display prices in the
+        // merchant price column. If the user has set a GP value use it;
+        // otherwise fall back to a tiny non-zero so the price shows rather
+        // than being blank (Item Piles treats 0 as "no value").
+        const exchangeRate = (curr.exchangeRate && curr.exchangeRate > 0)
+            ? curr.exchangeRate
+            : 0.0001;
+
+        return {
+            type:         "attribute",
+            name:         curr.name,
+            img:          curr.img || DEFAULT_CURRENCY_ICON,
+            // Use the slot id as the abbreviation key to avoid collisions with
+            // standard dnd5e currency keys (sp, gp, etc.)
+            abbreviation: `{#}${curr.abbreviation}`,
+            // Provide a unique key so Item Piles can distinguish our currencies
+            id:           `${MODULE_ID}.${curr.id}`,
+            data:         { path: `flags.${MODULE_ID}.${curr.id}` },
+            primary:      false,
+            exchangeRate,
+        };
+    });
 
     try {
         await game.itempiles.API.setCurrencies([...existing, ...entries]);
