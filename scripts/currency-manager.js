@@ -143,7 +143,7 @@ export class CurrencyManagerApp extends FormApplication {
                 name:              String(d.name              ?? curr.name),
                 abbreviation:      String(d.abbreviation      ?? curr.abbreviation),
                 exchangeRate:      Number(d.exchangeRate      ?? curr.exchangeRate) || 0,
-                img:               String(d.img               ?? curr.img || DEFAULT_CURRENCY_ICON),
+                img:               String(d.img ?? curr.img ?? DEFAULT_CURRENCY_ICON),
                 visibility:        String(d.visibility        ?? curr.visibility),
                 participateConvert: d.participateConvert === true
                                  || d.participateConvert === "true"
