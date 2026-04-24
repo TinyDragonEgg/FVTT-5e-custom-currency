@@ -64,9 +64,14 @@ function currencyImgTag(curr) {
 }
 
 /**
- * Replace any <dnd5e-icon> whose src points to a missing custom-currency SVG
- * with a proper <img> carrying the configured icon path.
- * Called on every rendered sheet (character, item, NPC…).
+ * Replace any <dnd5e-icon> that belongs to one of our custom currencies with
+ * a plain <img>.  We match by:
+ *   1. src contains the currency id  (fallback SVG path dnd5e builds when img
+ *      is not in CONFIG, e.g. "systems/dnd5e/icons/svg/currency/custom1.svg")
+ *   2. src exactly equals the configured img path  (dnd5e 4.x reads img from
+ *      CONFIG.DND5E.currencies and passes it straight to <dnd5e-icon src>)
+ * <dnd5e-icon> is a web component that only handles dnd5e's own SVGs; it
+ * silently drops .webp or external paths, so we must swap it for <img>.
  */
 function fixDnd5eIcons(html) {
     const customs = getCustomCurrencies();
@@ -74,9 +79,11 @@ function fixDnd5eIcons(html) {
 
     html.find("dnd5e-icon").each((_, el) => {
         const src = el.getAttribute("src") ?? "";
-        // dnd5e falls back to systems/dnd5e/icons/svg/currency/<key>.svg
-        // Match any of our custom keys in that path.
-        const curr = customs.find(c => src.includes(c.id));
+        const curr = customs.find(c =>
+            src.includes(c.id) ||
+            (c.img && src === c.img) ||
+            src === DEFAULT_CURRENCY_ICON
+        );
         if (!curr) return;
         $(el).replaceWith(currencyImgTag(curr));
     });
@@ -114,13 +121,13 @@ function injectCustomCurrencies(html, actor) {
 
         if (li.length) {
             li.addClass("custom-currency");
-            // fixDnd5eIcons() already replaced the dnd5e-icon above;
-            // if somehow an img.currency-custom-icon exists, keep its src fresh.
-            const img = li.find("img.currency-custom-icon").first();
-            if (img.length) {
-                img.attr("src", curr.img || DEFAULT_CURRENCY_ICON);
-                const filter = tintColorToFilter(curr.tintColor);
-                img.css("filter", filter || "");
+            // Always replace whatever icon dnd5e rendered (dnd5e-icon web
+            // component won't display .webp paths; plain <img> is reliable).
+            const existingIcon = li.find("dnd5e-icon, img.currency-custom-icon").first();
+            if (existingIcon.length) {
+                existingIcon.replaceWith(currencyImgTag(curr));
+            } else {
+                li.prepend(currencyImgTag(curr));
             }
         } else {
             // Fallback: dnd5e didn't render it — inject the full row.
