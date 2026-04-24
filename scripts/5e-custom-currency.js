@@ -64,14 +64,10 @@ function currencyImgTag(curr) {
 }
 
 /**
- * Replace any <dnd5e-icon> that belongs to one of our custom currencies with
- * a plain <img>.  We match by:
- *   1. src contains the currency id  (fallback SVG path dnd5e builds when img
- *      is not in CONFIG, e.g. "systems/dnd5e/icons/svg/currency/custom1.svg")
- *   2. src exactly equals the configured img path  (dnd5e 4.x reads img from
- *      CONFIG.DND5E.currencies and passes it straight to <dnd5e-icon src>)
- * <dnd5e-icon> is a web component that only handles dnd5e's own SVGs; it
- * silently drops .webp or external paths, so we must swap it for <img>.
+ * Safety-net: replace any leftover <dnd5e-icon> for a custom currency with a
+ * plain <img>.  In dnd5e 5.x the currency bar uses <i> styled via a generated
+ * CSS rule (background-image from CONFIG.DND5E.currencies[id].icon), so this
+ * function is mostly a fallback for older sheets or edge cases.
  */
 function fixDnd5eIcons(html) {
     const customs = getCustomCurrencies();
@@ -81,8 +77,7 @@ function fixDnd5eIcons(html) {
         const src = el.getAttribute("src") ?? "";
         const curr = customs.find(c =>
             src.includes(c.id) ||
-            (c.img && src === c.img) ||
-            src === DEFAULT_CURRENCY_ICON
+            (c.img && src === c.img)
         );
         if (!curr) return;
         $(el).replaceWith(currencyImgTag(curr));
@@ -121,14 +116,13 @@ function injectCustomCurrencies(html, actor) {
 
         if (li.length) {
             li.addClass("custom-currency");
-            // Always replace whatever icon dnd5e rendered (dnd5e-icon web
-            // component won't display .webp paths; plain <img> is reliable).
-            const existingIcon = li.find("dnd5e-icon, img.currency-custom-icon").first();
-            if (existingIcon.length) {
-                existingIcon.replaceWith(currencyImgTag(curr));
-            } else {
-                li.prepend(currencyImgTag(curr));
-            }
+            // dnd5e 5.x renders <i class="currency custom1"> and generates a
+            // CSS rule `background-image: url("${icon}")` from CONFIG at setup
+            // time.  Now that we set the `icon` field correctly, the <i> will
+            // display our image natively — no replacement needed.
+            // We only remove a stale img.currency-custom-icon if one was
+            // injected by an older version of this module.
+            li.find("img.currency-custom-icon").remove();
         } else {
             // Fallback: dnd5e didn't render it — inject the full row.
             li = $(`<li class="currency ${curr.id} custom-currency"

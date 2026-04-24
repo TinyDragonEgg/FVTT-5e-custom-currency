@@ -81,7 +81,9 @@ export function patch_currencyNames() {
             // conversion: null = base denomination, not part of the standard chain.
             // (The standard chain cp→sp→ep→gp→pp uses numeric conversion values.)
             conversion:   null,
-            // img is read by dnd5e 4.x's sheet to render the coin icon.
+            // dnd5e generates CSS `background-image: url("${icon}")` from this field.
+            // Keep img as an alias in case any older code path reads it.
+            icon:         curr.img || DEFAULT_CURRENCY_ICON,
             img:          curr.img || DEFAULT_CURRENCY_ICON,
         };
     }
