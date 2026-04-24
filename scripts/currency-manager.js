@@ -12,6 +12,7 @@ import {
     patch_currencyConversion,
     rerenderSheets,
     tintColorToFilter,
+    injectCurrencyIconCSS,
 } from "./shared.js";
 
 // Imported lazily at call-sites to avoid circular deps with 5e-custom-currency.js
@@ -216,6 +217,7 @@ export class CurrencyManagerApp extends FormApplication {
         await game.settings.set(MODULE_ID, "customCurrencies", updated);
 
         patch_currencyNames();
+        injectCurrencyIconCSS();
         try {
             if (game.settings.get(MODULE_ID, "depCur")) patch_currencyConversion();
         } catch { /* exchange rate settings may not exist yet */ }

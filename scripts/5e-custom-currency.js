@@ -12,6 +12,7 @@ import {
     patch_currencyNames,
     patch_currencyConversion,
     tintColorToFilter,
+    injectCurrencyIconCSS,
 } from "./shared.js";
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
@@ -349,6 +350,7 @@ Hooks.on("ready", () => {
 
     // Re-patch after ready in case any other module reset CONFIG.DND5E.currencies
     patch_currencyNames();
+    injectCurrencyIconCSS();
 
     if (g("depCur")) {
         patch_currencyConversion();

@@ -135,6 +135,41 @@ export function tintColorToFilter(hexColor) {
     return rotate === 0 ? "" : `hue-rotate(${rotate}deg)`;
 }
 
+// ─── Dynamic icon CSS ─────────────────────────────────────────────────────────
+
+/**
+ * Inject (or replace) a <style> block that fixes dnd5e 5.x's generated CSS for
+ * custom currency <i> elements:
+ *   - Removes the dark background dnd5e applies to coin icon slots
+ *   - Applies the user-configured hue-rotate tint filter
+ *
+ * dnd5e generates `.currency.{key} { background-image: url("...") }` from
+ * CONFIG at the setup hook.  We run AFTER that and override/extend it here.
+ */
+export function injectCurrencyIconCSS() {
+    const STYLE_ID = `${MODULE_ID}-icon-styles`;
+    document.getElementById(STYLE_ID)?.remove();
+
+    const customs = getCustomCurrencies();
+    if (!customs.length) return;
+
+    const rules = customs.map(curr => {
+        const filter = tintColorToFilter(curr.tintColor);
+        return `
+.dnd5e2 i.currency.${curr.id} {
+    background-color: transparent !important;
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: center;${filter ? `\n    filter: ${filter};` : ""}
+}`;
+    }).join("\n");
+
+    const el = document.createElement("style");
+    el.id = STYLE_ID;
+    el.textContent = rules;
+    document.head.appendChild(el);
+}
+
 // ─── Sheet re-render ──────────────────────────────────────────────────────────
 
 /** Re-render all currently open actor sheets so currency changes show live. */
