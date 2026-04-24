@@ -435,13 +435,34 @@ Hooks.on("ready", () => {
     }
 });
 
-Hooks.on("renderActorSheet5eCharacter",  handleCharacterSheet);
-Hooks.on("renderActorSheet5eCharacter2", handleCharacterSheet);
+// ─── Actor sheet hooks ────────────────────────────────────────────────────────
+// "render" fires for every ApplicationV2 render regardless of the class name,
+// so we don't break when dnd5e renames its sheet classes between major versions.
+// We filter by checking for a dnd5e currency system object on the actor.
+//
+// In FVTT V13, ApplicationV2 fires BOTH "render" AND "render{ClassName}", so
+// we track which apps we've already handled this tick to avoid duplicate work.
 
-// NPC + Vehicle sheets — visibility and icon fixes for all actor types
-Hooks.on("renderActorSheet5eNPC",     handleNpcSheet);
-Hooks.on("renderActorSheet5eNPC2",    handleNpcSheet);
-Hooks.on("renderActorSheet5eVehicle", handleNpcSheet);
+const _handled = new WeakSet();
+
+Hooks.on("render", (app, html) => {
+    const actor = actorFromSheet(app);
+    if (!actor?.system?.currency) return;
+    _handled.add(app);
+    if (actor.type === "character") handleCharacterSheet(app, html);
+    else handleNpcSheet(app, html);
+});
+
+// Legacy class-specific hooks — fire only if "render" didn't already handle it
+// (covers FVTT V12 / older dnd5e where "render" may not exist or fire differently)
+function _legacyCharacter(app, html) { if (!_handled.has(app)) handleCharacterSheet(app, html); }
+function _legacyNpc(app, html)       { if (!_handled.has(app)) handleNpcSheet(app, html); }
+
+Hooks.on("renderActorSheet5eCharacter",  _legacyCharacter);
+Hooks.on("renderActorSheet5eCharacter2", _legacyCharacter);
+Hooks.on("renderActorSheet5eNPC",        _legacyNpc);
+Hooks.on("renderActorSheet5eNPC2",       _legacyNpc);
+Hooks.on("renderActorSheet5eVehicle",    _legacyNpc);
 
 // Live visibility update when an actor's currency values change
 // (e.g. a 0-balance currency gets paid; it should appear/disappear immediately)
