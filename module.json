@@ -4,7 +4,7 @@
     "title": "5E Custom Currency",
     "description": "Set custom currency names and exchange rates for D&D 5E default currency.",
     "authors": [{ "name": "InfraredAces" }],
-    "version": "2.4.4",
+    "version": "2.4.5",
     "library": "false",
     "compatibility": {
         "minimum": "12",
