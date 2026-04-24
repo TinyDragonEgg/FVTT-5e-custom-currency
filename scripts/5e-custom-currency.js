@@ -259,6 +259,56 @@ function injectWealthTotal(html, actor) {
     html.find("section.currency, ol.currency-list, ul.currency-list, ul.currency").first().after(line);
 }
 
+// ─── _prepareContext patch ────────────────────────────────────────────────────
+
+/**
+ * Patch every registered dnd5e actor sheet class so that hidden currencies are
+ * removed from the template context BEFORE the sheet renders.
+ *
+ * This is the only approach that's immune to async rendering timing — if the
+ * data isn't in the context, dnd5e simply never stamps a DOM node for it.
+ *
+ * dnd5e 5.x puts the currency array in context.currencies (array of objects
+ * with a .key property).  We filter that array in place.
+ */
+export function patchSheetContext() {
+    const patched = new WeakSet();
+
+    const tryPatch = (SheetClass) => {
+        if (!SheetClass?.prototype?._prepareContext) return;
+        if (patched.has(SheetClass)) return;
+        patched.add(SheetClass);
+
+        const orig = SheetClass.prototype._prepareContext;
+        SheetClass.prototype._prepareContext = async function (options) {
+            const ctx = await orig.call(this, options);
+            const actor = this.document ?? this.actor ?? this.object;
+            if (!actor?.system?.currency) return ctx;
+
+            const hidden = new Set(buildHiddenList(actor));
+            if (!hidden.size) return ctx;
+
+            // dnd5e 5.x: context.currencies is an array of { key, label, value, ... }
+            if (Array.isArray(ctx.currencies)) {
+                ctx.currencies = ctx.currencies.filter(c => !hidden.has(c.key ?? c.abbr ?? c.id));
+            }
+            // Older structure / nested paths
+            if (Array.isArray(ctx.data?.currency)) {
+                ctx.data.currency = ctx.data.currency.filter(c => !hidden.has(c.key ?? c.id));
+            }
+
+            return ctx;
+        };
+    };
+
+    // Patch every sheet class registered for any actor type
+    for (const classes of Object.values(CONFIG.Actor.sheetClasses ?? {})) {
+        for (const entry of Object.values(classes)) {
+            tryPatch(entry.cls ?? entry);
+        }
+    }
+}
+
 // ─── Convert currency override ────────────────────────────────────────────────
 
 export function patchConvertCurrency() {
@@ -428,6 +478,7 @@ Hooks.on("ready", () => {
     }
 
     patchConvertCurrency();
+    patchSheetContext();
 
     if (game.modules.get("item-piles")?.active) {
         if (game.itempiles) syncItemPiles();
