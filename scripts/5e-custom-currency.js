@@ -295,25 +295,49 @@ export async function syncItemPiles() {
 
 // ─── Shared sheet handlers ────────────────────────────────────────────────────
 
+/**
+ * dnd5e 5.x renders the inventory (including section.currency) inside a
+ * <dnd5e-inventory> custom element whose connectedCallback fires async
+ * template rendering AFTER the sheet render hook.  We watch the sheet root
+ * with a MutationObserver and apply our currency changes once the section
+ * exists.  Falls through immediately when the section is already present
+ * (e.g. on subsequent re-renders of an already-open sheet).
+ */
+function whenCurrencySectionReady(rootEl, callback) {
+    const SELECTOR = "section.currency, ol.currency-list, ul.currency-list, ul.currency";
+    if (rootEl.querySelector(SELECTOR)) {
+        callback();
+        return;
+    }
+    const obs = new MutationObserver(() => {
+        if (rootEl.querySelector(SELECTOR)) {
+            obs.disconnect();
+            callback();
+        }
+    });
+    obs.observe(rootEl, { childList: true, subtree: true });
+    // Safety: disconnect after 5 s so we don't leak observers on broken sheets
+    setTimeout(() => obs.disconnect(), 5000);
+}
+
 function handleCharacterSheet(sheet, html) {
     html = normaliseHtml(html);
     const actor = actorFromSheet(sheet);
 
     if (!g("depCur")) removeConvertCurrency(html);
-
     fixDnd5eIcons(html);
     alterCharacterCurrency(html);
 
     if (actor) {
-        applyStandardVisibility(html, actor);
-        injectCustomCurrencies(html, actor);
-        injectWealthTotal(html, actor);
+        whenCurrencySectionReady(html[0] ?? html, () => {
+            applyStandardVisibility(html, actor);
+            injectCustomCurrencies(html, actor);
+            injectWealthTotal(html, actor);
+        });
     }
 }
 
-/** Apply visibility to NPC / vehicle sheets — dnd5e 5.x renders all
- *  CONFIG currencies on every actor sheet, so custom currencies appear
- *  on NPCs too and need the same hide/show treatment. */
+/** Apply visibility to NPC / vehicle sheets. */
 function handleNpcSheet(sheet, html) {
     html = normaliseHtml(html);
     const actor = actorFromSheet(sheet);
@@ -321,10 +345,11 @@ function handleNpcSheet(sheet, html) {
     fixDnd5eIcons(html);
     alterCharacterCurrency(html);
 
-    // Tidy5e NPC already handled above; still apply for stock dnd5e NPC sheet
     if (actor) {
-        applyStandardVisibility(html, actor);
-        injectCustomCurrencies(html, actor);
+        whenCurrencySectionReady(html[0] ?? html, () => {
+            applyStandardVisibility(html, actor);
+            injectCustomCurrencies(html, actor);
+        });
     }
 }
 
