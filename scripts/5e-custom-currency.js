@@ -261,12 +261,16 @@ export async function syncItemPiles() {
     if (!api?.setCurrencies) return;
 
     const customs = getCustomCurrencies();
+
+    // ── Primary currencies: keep existing standard ones, strip any old custom entries ──
     const existing = (api.CURRENCIES ?? []).filter(
         c => !c.data?.path?.startsWith(`system.currency.custom`)
            && !c.data?.path?.startsWith(`flags.${MODULE_ID}`)
     );
 
-    const entries = customs.map(curr => {
+    // ── Secondary currencies: our custom ones ─────────────────────────────────
+    // setSecondaryCurrencies uses a simpler shape — no primary/exchangeRate fields.
+    const secondaryEntries = customs.map(curr => {
         const rawImg = curr.img || DEFAULT_CURRENCY_ICON;
         const img    = rawImg.startsWith("http") || rawImg.startsWith("/")
             ? rawImg : `/${rawImg}`;
@@ -276,14 +280,36 @@ export async function syncItemPiles() {
             img,
             abbreviation: `{#}${curr.abbreviation}`,
             data:         { path: `system.currency.${curr.id}` },
-            primary:      false,
-            exchangeRate: (curr.exchangeRate > 0) ? curr.exchangeRate : 0.0001,
         };
     });
 
     try {
-        await api.setCurrencies([...existing, ...entries]);
-        console.log("5e-custom-currency | Synced custom currencies to Item Piles");
+        // Restore primary currencies without our custom entries
+        await api.setCurrencies(existing);
+
+        // Place custom currencies in the secondary slot (if API supports it)
+        if (api.setSecondaryCurrencies) {
+            await api.setSecondaryCurrencies(secondaryEntries);
+            console.log("5e-custom-currency | Synced custom currencies to Item Piles (secondary)");
+        } else {
+            // Fallback for older Item Piles: append to primary with primary:false
+            const fallbackEntries = customs.map(curr => {
+                const rawImg = curr.img || DEFAULT_CURRENCY_ICON;
+                const img    = rawImg.startsWith("http") || rawImg.startsWith("/")
+                    ? rawImg : `/${rawImg}`;
+                return {
+                    type:         "attribute",
+                    name:         curr.name,
+                    img,
+                    abbreviation: `{#}${curr.abbreviation}`,
+                    data:         { path: `system.currency.${curr.id}` },
+                    primary:      false,
+                    exchangeRate: (curr.exchangeRate > 0) ? curr.exchangeRate : 0.0001,
+                };
+            });
+            await api.setCurrencies([...existing, ...fallbackEntries]);
+            console.log("5e-custom-currency | Synced custom currencies to Item Piles (primary fallback)");
+        }
     } catch (err) {
         console.warn("5e-custom-currency | Item Piles sync failed:", err);
     }
