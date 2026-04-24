@@ -40,38 +40,73 @@ function alterCharacterCurrency(html) {
 }
 
 /**
- * Compute which currencies should be hidden for this actor/sheet and write
- * them as a space-separated list into `data-hide-currencies` on the sheet's
- * persistent root element.
- *
- * The companion static CSS (injected by injectVisibilityCSS in shared.js) then
- * hides any matching label/li inside that root via :has() — immune to inner
- * re-renders because it targets the outer wrapper, not the re-drawn content.
+ * Build the list of currency keys that should be hidden for this actor.
+ * Returns a string of space-separated keys (empty = nothing hidden).
  */
-function applyVisibilityAttribute(sheet, actor) {
-    // Resolve the persistent root HTMLElement (ApplicationV2 = HTMLElement,
-    // ApplicationV1 = jQuery wrapper or HTMLElement depending on version)
-    let rootEl = sheet.element;
-    if (rootEl instanceof jQuery) rootEl = rootEl[0];
-    if (!(rootEl instanceof HTMLElement)) return;
-
+function buildHiddenList(actor) {
     const hidden = [];
-
     for (const key of STANDARD_KEYS) {
         const vis = g(key + "Visibility") ?? "always";
         if (vis === "always") continue;
         const amount = actor?.system?.currency?.[key] ?? 0;
         if (vis === "never" || (vis === "owned" && amount <= 0)) hidden.push(key);
     }
-
     for (const curr of getCustomCurrencies()) {
         const vis = curr.visibility ?? "always";
         if (vis === "always") continue;
         const amount = actor?.system?.currency?.[curr.id] ?? 0;
         if (vis === "never" || (vis === "owned" && amount <= 0)) hidden.push(curr.id);
     }
+    return hidden;
+}
 
-    rootEl.dataset.hideCurrencies = hidden.join(" ");
+/**
+ * Apply visibility to an open sheet.
+ *
+ * Two-pronged approach so timing doesn't matter:
+ *  1. CSS data-attribute — set `data-hide-currencies` on the root element so
+ *     the static :has() CSS rules hide matching labels even after re-renders.
+ *  2. Direct jQuery — immediately hide/show the label/li nodes that exist right
+ *     now. Repeated in a setTimeout(0) to catch anything dnd5e renders late.
+ *
+ * @param {jQuery} html   - The normalised jQuery-wrapped sheet element.
+ * @param {Actor5e} actor
+ */
+function applyVisibility(html, actor) {
+    const hidden = buildHiddenList(actor);
+    const hiddenSet = new Set(hidden);
+
+    // ── 1. CSS data-attribute (persistent across re-renders) ─────────────────
+    // Set on every plausible root: the jQuery root AND the ApplicationV2
+    // this.element wrapper (they may be the same element or nested).
+    const rootEl = html[0];
+    if (rootEl instanceof HTMLElement) {
+        rootEl.dataset.hideCurrencies = hidden.join(" ");
+        // Also walk up one level in case the hook gave us the inner content div
+        if (rootEl.parentElement) {
+            rootEl.parentElement.dataset.hideCurrencies = hidden.join(" ");
+        }
+    }
+
+    // ── 2. Direct DOM hiding (immediate + deferred) ───────────────────────────
+    function hideNow() {
+        const allKeys = [...STANDARD_KEYS, ...getCustomCurrencies().map(c => c.id)];
+        for (const key of allKeys) {
+            const label = html.find(`i.currency.${key}`).closest("label, li");
+            label.add(html.find(`li.${key}, li[data-denomination="${key}"]`));
+            if (hiddenSet.has(key)) {
+                html.find(`i.currency.${key}`).closest("label, li").hide();
+                html.find(`li.${key}, li[data-denomination="${key}"]`).hide();
+            } else {
+                html.find(`i.currency.${key}`).closest("label, li").show();
+                html.find(`li.${key}, li[data-denomination="${key}"]`).show();
+            }
+        }
+    }
+
+    hideNow();
+    // Deferred pass for anything dnd5e renders after the hook returns
+    setTimeout(hideNow, 0);
 }
 
 // ─── Custom-currency icon helpers ────────────────────────────────────────────
@@ -321,9 +356,7 @@ function handleCharacterSheet(sheet, html) {
     alterCharacterCurrency(html);
 
     if (actor) {
-        // Visibility: set data attribute on persistent root — CSS does the hiding.
-        // Must happen before inner re-renders so it is already in place when they fire.
-        applyVisibilityAttribute(sheet, actor);
+        applyVisibility(html, actor);
         injectCustomCurrencies(html, actor);
         injectWealthTotal(html, actor);
     }
@@ -338,7 +371,7 @@ function handleNpcSheet(sheet, html) {
     alterCharacterCurrency(html);
 
     if (actor) {
-        applyVisibilityAttribute(sheet, actor);
+        applyVisibility(html, actor);
         injectCustomCurrencies(html, actor);
     }
 }
@@ -398,7 +431,10 @@ Hooks.on("renderActorSheet5eVehicle", handleNpcSheet);
 Hooks.on("updateActor", (actor, changes) => {
     if (!foundry.utils.hasProperty(changes, "system.currency")) return;
     for (const app of Object.values(actor.apps ?? {})) {
-        if (app?.rendered) applyVisibilityAttribute(app, actor);
+        if (!app?.rendered) continue;
+        let el = app.element;
+        if (!el) continue;
+        applyVisibility(el instanceof HTMLElement ? $(el) : el, actor);
     }
 });
 
