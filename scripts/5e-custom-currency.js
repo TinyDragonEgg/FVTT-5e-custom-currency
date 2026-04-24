@@ -279,6 +279,7 @@ export async function syncItemPiles() {
             img,
             abbreviation: `{#}${curr.abbreviation}`,
             data:         { path: `system.currency.${curr.id}` },
+            primary:      true,
             exchangeRate: (curr.exchangeRate > 0) ? curr.exchangeRate : 0.0001,
         };
     });
