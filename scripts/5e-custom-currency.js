@@ -48,20 +48,54 @@ function applyStandardVisibility(html, actor) {
     }
 }
 
+// ─── Custom-currency icon helpers ────────────────────────────────────────────
+
+/**
+ * Build a plain <img> element string for a custom currency icon.
+ * We use <img> instead of <dnd5e-icon> because we need to control the src,
+ * and dnd5e-icon is a web component whose internal img can't be changed
+ * via jQuery .attr() after it has mounted.
+ */
+function currencyImgTag(curr) {
+    const src    = curr.img || DEFAULT_CURRENCY_ICON;
+    const filter = tintColorToFilter(curr.tintColor);
+    const style  = filter ? ` style="filter:${filter}"` : "";
+    return `<img class="currency-custom-icon" src="${src}" alt="${curr.name}"${style}>`;
+}
+
+/**
+ * Replace any <dnd5e-icon> whose src points to a missing custom-currency SVG
+ * with a proper <img> carrying the configured icon path.
+ * Called on every rendered sheet (character, item, NPC…).
+ */
+function fixDnd5eIcons(html) {
+    const customs = getCustomCurrencies();
+    if (!customs.length) return;
+
+    html.find("dnd5e-icon").each((_, el) => {
+        const src = el.getAttribute("src") ?? "";
+        // dnd5e falls back to systems/dnd5e/icons/svg/currency/<key>.svg
+        // Match any of our custom keys in that path.
+        const curr = customs.find(c => src.includes(c.id));
+        if (!curr) return;
+        $(el).replaceWith(currencyImgTag(curr));
+    });
+}
+
 // ─── Custom-currency sheet injection ─────────────────────────────────────────
 
 /**
- * Ensure every custom currency has a visible row in the currency bar.
+ * Ensure every custom currency has a visible row in the currency bar and
+ * that its icon is correctly displayed.
  *
  * dnd5e 4.x iterates CONFIG.DND5E.currencies when building the currency bar,
- * so our custom currencies are rendered natively as long as we patched CONFIG
- * before the sheet opened (done in the init hook).
- *
- * We still hook in to:
- *  - Replace the icon (dnd5e falls back to a key-named SVG we don't have)
+ * so our currencies are rendered natively (input bound to system.currency.[id]).
+ * We still need to:
+ *  - Replace the broken dnd5e-icon with our actual image (fixDnd5eIcons covers
+ *    this, but we also handle it here for fallback rows)
  *  - Apply visibility rules
- *  - Inject a fallback row with a system.currency input for sheets that
- *    rendered before the CONFIG patch, or older dnd5e versions
+ *  - Inject a full fallback row if dnd5e didn't render ours (older version or
+ *    CONFIG patched too late)
  */
 function injectCustomCurrencies(html, actor) {
     const container = html.find(
@@ -73,40 +107,27 @@ function injectCustomCurrencies(html, actor) {
         const vis    = curr.visibility ?? "always";
         const amount = actor?.system?.currency?.[curr.id] ?? 0;
 
-        const imgSrc   = curr.img || DEFAULT_CURRENCY_ICON;
-        const filter   = tintColorToFilter(curr.tintColor);
-        const imgStyle = filter ? ` style="filter:${filter}"` : "";
-
         // ── Find native li rendered by dnd5e ──────────────────────────────
         let li = container.find(
             `li.${curr.id}, li[data-denomination="${curr.id}"]`
         ).first();
 
         if (li.length) {
-            // dnd5e rendered it — fix the icon (dnd5e falls back to a
-            // path like systems/dnd5e/icons/svg/currency/custom1.svg
-            // which doesn't exist, so it shows broken/empty)
             li.addClass("custom-currency");
-
-            const existingIcon = li.find("dnd5e-icon, img.currency-custom-icon").first();
-            if (existingIcon.length) {
-                existingIcon.attr("src", imgSrc);
-                if (filter) existingIcon.css("filter", filter);
-                else        existingIcon.css("filter", "");
-            } else {
-                li.prepend(
-                    `<img class="currency-custom-icon" src="${imgSrc}" alt="${curr.name}"${imgStyle}>`
-                );
+            // fixDnd5eIcons() already replaced the dnd5e-icon above;
+            // if somehow an img.currency-custom-icon exists, keep its src fresh.
+            const img = li.find("img.currency-custom-icon").first();
+            if (img.length) {
+                img.attr("src", curr.img || DEFAULT_CURRENCY_ICON);
+                const filter = tintColorToFilter(curr.tintColor);
+                img.css("filter", filter || "");
             }
         } else {
-            // Fallback — dnd5e didn't render it; inject the full row.
-            // Use name="system.currency.[id]" so dnd5e's own form handler
-            // saves the value natively.
+            // Fallback: dnd5e didn't render it — inject the full row.
             li = $(`<li class="currency ${curr.id} custom-currency"
                         data-denomination="${curr.id}"
                         aria-label="${curr.name}">
-                      <img class="currency-custom-icon"
-                           src="${imgSrc}" alt="${curr.name}"${imgStyle}>
+                      ${currencyImgTag(curr)}
                       <input type="number"
                              name="system.currency.${curr.id}"
                              value="${amount}" min="0" placeholder="0"
@@ -115,8 +136,6 @@ function injectCustomCurrencies(html, actor) {
                     </li>`);
             container.append(li);
 
-            // Safety-net change handler for sheets where our injected input
-            // may not be caught by dnd5e's own form listener.
             li.find("input").on("change", function () {
                 actor.update({
                     [`system.currency.${curr.id}`]: parseInt(this.value) || 0,
@@ -278,6 +297,7 @@ function handleCharacterSheet(sheet, html) {
 
     if (!g("depCur")) removeConvertCurrency(html);
 
+    fixDnd5eIcons(html);
     alterCharacterCurrency(html);
 
     if (actor) {
@@ -372,6 +392,11 @@ function _alterTradeWindowCurrency(html) {
         container.attr("title", g(key + "Alt") ?? key);
     }
 }
+
+// ─── Compatibility: Item sheets ──────────────────────────────────────────────
+
+Hooks.on("renderItemSheet5e",  (sheet, html) => fixDnd5eIcons(normaliseHtml(html)));
+Hooks.on("renderItemSheet5e2", (sheet, html) => fixDnd5eIcons(normaliseHtml(html)));
 
 // ─── Compatibility: Party Overview ───────────────────────────────────────────
 
