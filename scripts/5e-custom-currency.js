@@ -63,50 +63,67 @@ function buildHiddenList(actor) {
 /**
  * Apply visibility to an open sheet.
  *
- * Two-pronged approach so timing doesn't matter:
- *  1. CSS data-attribute — set `data-hide-currencies` on the root element so
- *     the static :has() CSS rules hide matching labels even after re-renders.
- *  2. Direct jQuery — immediately hide/show the label/li nodes that exist right
- *     now. Repeated in a setTimeout(0) to catch anything dnd5e renders late.
+ * dnd5e 5.x renders the currency bar inside <dnd5e-inventory> which fetches
+ * its template asynchronously — the labels do not exist when the render hook
+ * fires.  We therefore:
+ *  1. Set a CSS data-attribute on the root right now (static :has() rules kick
+ *     in the moment the labels are stamped into the DOM, no timing required).
+ *  2. Install a long-running MutationObserver on the root that re-hides via
+ *     jQuery whenever the currency section is created or re-rendered.
+ *     Debounced at 50 ms so rapid batched mutations only fire once.
+ *     Auto-disconnects when the root element leaves the DOM (sheet closed).
  *
- * @param {jQuery} html   - The normalised jQuery-wrapped sheet element.
- * @param {Actor5e} actor
+ * @param {jQuery}   html   - The normalised jQuery-wrapped sheet element.
+ * @param {Actor5e}  actor
  */
 function applyVisibility(html, actor) {
-    const hidden = buildHiddenList(actor);
+    const rootEl = html instanceof jQuery ? html[0] : html;
+    if (!(rootEl instanceof HTMLElement)) return;
+
+    const hidden    = buildHiddenList(actor);
     const hiddenSet = new Set(hidden);
 
-    // ── 1. CSS data-attribute (persistent across re-renders) ─────────────────
-    // Set on every plausible root: the jQuery root AND the ApplicationV2
-    // this.element wrapper (they may be the same element or nested).
-    const rootEl = html[0];
-    if (rootEl instanceof HTMLElement) {
-        rootEl.dataset.hideCurrencies = hidden.join(" ");
-        // Also walk up one level in case the hook gave us the inner content div
-        if (rootEl.parentElement) {
-            rootEl.parentElement.dataset.hideCurrencies = hidden.join(" ");
-        }
+    // ── 1. CSS data-attribute ─────────────────────────────────────────────────
+    rootEl.dataset.hideCurrencies = hidden.join(" ");
+    if (rootEl.parentElement instanceof HTMLElement) {
+        rootEl.parentElement.dataset.hideCurrencies = hidden.join(" ");
     }
 
-    // ── 2. Direct DOM hiding (immediate + deferred) ───────────────────────────
+    // ── 2. MutationObserver + direct jQuery (handles async renders) ───────────
+    const SECTION_SEL = "section.currency, ol.currency-list, ul.currency-list, ul.currency";
+
     function hideNow() {
         const allKeys = [...STANDARD_KEYS, ...getCustomCurrencies().map(c => c.id)];
         for (const key of allKeys) {
-            const label = html.find(`i.currency.${key}`).closest("label, li");
-            label.add(html.find(`li.${key}, li[data-denomination="${key}"]`));
             if (hiddenSet.has(key)) {
-                html.find(`i.currency.${key}`).closest("label, li").hide();
-                html.find(`li.${key}, li[data-denomination="${key}"]`).hide();
+                $(rootEl).find(`i.currency.${key}`).closest("label, li").hide();
+                $(rootEl).find(`li.${key}, li[data-denomination="${key}"]`).hide();
             } else {
-                html.find(`i.currency.${key}`).closest("label, li").show();
-                html.find(`li.${key}, li[data-denomination="${key}"]`).show();
+                $(rootEl).find(`i.currency.${key}`).closest("label, li").show();
+                $(rootEl).find(`li.${key}, li[data-denomination="${key}"]`).show();
             }
         }
     }
 
-    hideNow();
-    // Deferred pass for anything dnd5e renders after the hook returns
-    setTimeout(hideNow, 0);
+    // Run immediately in case section already exists (sync render path)
+    if (rootEl.querySelector(SECTION_SEL)) hideNow();
+
+    // Watch for the section being created or replaced (async render path)
+    let debounce = null;
+    const obs = new MutationObserver(() => {
+        if (!rootEl.querySelector(SECTION_SEL)) return;
+        clearTimeout(debounce);
+        debounce = setTimeout(hideNow, 50);
+    });
+    obs.observe(rootEl, { childList: true, subtree: true });
+
+    // Disconnect once the sheet root is removed from the page
+    new MutationObserver((_, self) => {
+        if (!document.contains(rootEl)) {
+            obs.disconnect();
+            self.disconnect();
+        }
+    }).observe(document.body, { childList: true, subtree: false });
 }
 
 // ─── Custom-currency icon helpers ────────────────────────────────────────────
