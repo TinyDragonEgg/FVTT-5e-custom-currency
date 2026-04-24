@@ -292,7 +292,7 @@ export async function syncItemPiles() {
     }
 }
 
-// ─── Shared character-sheet handler ──────────────────────────────────────────
+// ─── Shared sheet handlers ────────────────────────────────────────────────────
 
 function handleCharacterSheet(sheet, html) {
     html = normaliseHtml(html);
@@ -307,6 +307,23 @@ function handleCharacterSheet(sheet, html) {
         applyStandardVisibility(html, actor);
         injectCustomCurrencies(html, actor);
         injectWealthTotal(html, actor);
+    }
+}
+
+/** Apply visibility to NPC / vehicle sheets — dnd5e 5.x renders all
+ *  CONFIG currencies on every actor sheet, so custom currencies appear
+ *  on NPCs too and need the same hide/show treatment. */
+function handleNpcSheet(sheet, html) {
+    html = normaliseHtml(html);
+    const actor = actorFromSheet(sheet);
+
+    fixDnd5eIcons(html);
+    alterCharacterCurrency(html);
+
+    // Tidy5e NPC already handled above; still apply for stock dnd5e NPC sheet
+    if (actor) {
+        applyStandardVisibility(html, actor);
+        injectCustomCurrencies(html, actor);
     }
 }
 
@@ -352,6 +369,11 @@ Hooks.on("ready", () => {
 
 Hooks.on("renderActorSheet5eCharacter",  handleCharacterSheet);
 Hooks.on("renderActorSheet5eCharacter2", handleCharacterSheet);
+
+// NPC + Vehicle sheets — visibility and icon fixes for all actor types
+Hooks.on("renderActorSheet5eNPC",     handleNpcSheet);
+Hooks.on("renderActorSheet5eNPC2",    handleNpcSheet);
+Hooks.on("renderActorSheet5eVehicle", handleNpcSheet);
 
 // ─── Compatibility: Tidy5E NPC sheet ─────────────────────────────────────────
 
