@@ -161,21 +161,11 @@ export function injectCurrencyIconCSS() {
 
     const rules = customs.map(curr => {
         const filter = tintColorToFilter(curr.tintColor);
-        // mix-blend-mode: screen dissolves dark/black backgrounds — black pixels
-        // become transparent against dnd5e's dark UI, leaving only the coin visible.
-        // Combine drop-shadow (matching dnd5e's own coin style) with any tint filter.
-        const filterVal = [
-            "drop-shadow(0 0 1px black)",
-            ...(filter ? [filter] : []),
-        ].join(" ");
         return `
 .dnd5e2 i.currency.${curr.id} {
-    background-color: transparent !important;
     background-size: contain;
     background-repeat: no-repeat;
-    background-position: center;
-    mix-blend-mode: screen;
-    filter: ${filterVal};
+    background-position: center;${filter ? `\n    filter: ${filter};` : ""}
 }`;
     }).join("\n");
 
