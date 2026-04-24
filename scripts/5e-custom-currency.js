@@ -13,6 +13,7 @@ import {
     patch_currencyConversion,
     tintColorToFilter,
     injectCurrencyIconCSS,
+    injectVisibilityCSS,
 } from "./shared.js";
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
@@ -38,18 +39,39 @@ function alterCharacterCurrency(html) {
     }
 }
 
-function applyStandardVisibility(html, actor) {
+/**
+ * Compute which currencies should be hidden for this actor/sheet and write
+ * them as a space-separated list into `data-hide-currencies` on the sheet's
+ * persistent root element.
+ *
+ * The companion static CSS (injected by injectVisibilityCSS in shared.js) then
+ * hides any matching label/li inside that root via :has() — immune to inner
+ * re-renders because it targets the outer wrapper, not the re-drawn content.
+ */
+function applyVisibilityAttribute(sheet, actor) {
+    // Resolve the persistent root HTMLElement (ApplicationV2 = HTMLElement,
+    // ApplicationV1 = jQuery wrapper or HTMLElement depending on version)
+    let rootEl = sheet.element;
+    if (rootEl instanceof jQuery) rootEl = rootEl[0];
+    if (!(rootEl instanceof HTMLElement)) return;
+
+    const hidden = [];
+
     for (const key of STANDARD_KEYS) {
         const vis = g(key + "Visibility") ?? "always";
         if (vis === "always") continue;
         const amount = actor?.system?.currency?.[key] ?? 0;
-        if (vis === "never" || (vis === "owned" && amount <= 0)) {
-            // dnd5e 5.x: each currency is a <label> containing <i class="currency {key}">
-            // older dnd5e: <li class="{key}"> or <li data-denomination="{key}">
-            html.find(`i.currency.${key}`).closest("label, li").hide();
-            html.find(`.currency-item.${key}, li[data-denomination="${key}"]`).hide();
-        }
+        if (vis === "never" || (vis === "owned" && amount <= 0)) hidden.push(key);
     }
+
+    for (const curr of getCustomCurrencies()) {
+        const vis = curr.visibility ?? "always";
+        if (vis === "always") continue;
+        const amount = actor?.system?.currency?.[curr.id] ?? 0;
+        if (vis === "never" || (vis === "owned" && amount <= 0)) hidden.push(curr.id);
+    }
+
+    rootEl.dataset.hideCurrencies = hidden.join(" ");
 }
 
 // ─── Custom-currency icon helpers ────────────────────────────────────────────
@@ -112,7 +134,6 @@ function injectCustomCurrencies(html, actor) {
     if (!container.length) return;
 
     for (const curr of getCustomCurrencies()) {
-        const vis    = curr.visibility ?? "always";
         const amount = actor?.system?.currency?.[curr.id] ?? 0;
 
         // ── Find native element rendered by dnd5e ─────────────────────────
@@ -147,12 +168,8 @@ function injectCustomCurrencies(html, actor) {
             });
         }
 
-        // ── Visibility ────────────────────────────────────────────────────
-        if (vis === "never" || (vis === "owned" && amount <= 0)) {
-            row.hide();
-        } else {
-            row.show();
-        }
+        // Visibility is handled by applyVisibilityAttribute + injected CSS;
+        // no jQuery .hide()/.show() needed here.
     }
 }
 
@@ -295,31 +312,6 @@ export async function syncItemPiles() {
 
 // ─── Shared sheet handlers ────────────────────────────────────────────────────
 
-/**
- * dnd5e 5.x renders the inventory (including section.currency) inside a
- * <dnd5e-inventory> custom element whose connectedCallback fires async
- * template rendering AFTER the sheet render hook.  We watch the sheet root
- * with a MutationObserver and apply our currency changes once the section
- * exists.  Falls through immediately when the section is already present
- * (e.g. on subsequent re-renders of an already-open sheet).
- */
-function whenCurrencySectionReady(rootEl, callback) {
-    const SELECTOR = "section.currency, ol.currency-list, ul.currency-list, ul.currency";
-    if (rootEl.querySelector(SELECTOR)) {
-        callback();
-        return;
-    }
-    const obs = new MutationObserver(() => {
-        if (rootEl.querySelector(SELECTOR)) {
-            obs.disconnect();
-            callback();
-        }
-    });
-    obs.observe(rootEl, { childList: true, subtree: true });
-    // Safety: disconnect after 5 s so we don't leak observers on broken sheets
-    setTimeout(() => obs.disconnect(), 5000);
-}
-
 function handleCharacterSheet(sheet, html) {
     html = normaliseHtml(html);
     const actor = actorFromSheet(sheet);
@@ -329,15 +321,15 @@ function handleCharacterSheet(sheet, html) {
     alterCharacterCurrency(html);
 
     if (actor) {
-        whenCurrencySectionReady(html[0] ?? html, () => {
-            applyStandardVisibility(html, actor);
-            injectCustomCurrencies(html, actor);
-            injectWealthTotal(html, actor);
-        });
+        // Visibility: set data attribute on persistent root — CSS does the hiding.
+        // Must happen before inner re-renders so it is already in place when they fire.
+        applyVisibilityAttribute(sheet, actor);
+        injectCustomCurrencies(html, actor);
+        injectWealthTotal(html, actor);
     }
 }
 
-/** Apply visibility to NPC / vehicle sheets. */
+/** Apply visibility / icon fixes to NPC / vehicle sheets. */
 function handleNpcSheet(sheet, html) {
     html = normaliseHtml(html);
     const actor = actorFromSheet(sheet);
@@ -346,10 +338,8 @@ function handleNpcSheet(sheet, html) {
     alterCharacterCurrency(html);
 
     if (actor) {
-        whenCurrencySectionReady(html[0] ?? html, () => {
-            applyStandardVisibility(html, actor);
-            injectCustomCurrencies(html, actor);
-        });
+        applyVisibilityAttribute(sheet, actor);
+        injectCustomCurrencies(html, actor);
     }
 }
 
@@ -376,6 +366,7 @@ Hooks.on("ready", () => {
     // Re-patch after ready in case any other module reset CONFIG.DND5E.currencies
     patch_currencyNames();
     injectCurrencyIconCSS();
+    injectVisibilityCSS();
 
     if (g("depCur")) {
         patch_currencyConversion();
@@ -401,6 +392,15 @@ Hooks.on("renderActorSheet5eCharacter2", handleCharacterSheet);
 Hooks.on("renderActorSheet5eNPC",     handleNpcSheet);
 Hooks.on("renderActorSheet5eNPC2",    handleNpcSheet);
 Hooks.on("renderActorSheet5eVehicle", handleNpcSheet);
+
+// Live visibility update when an actor's currency values change
+// (e.g. a 0-balance currency gets paid; it should appear/disappear immediately)
+Hooks.on("updateActor", (actor, changes) => {
+    if (!foundry.utils.hasProperty(changes, "system.currency")) return;
+    for (const app of Object.values(actor.apps ?? {})) {
+        if (app?.rendered) applyVisibilityAttribute(app, actor);
+    }
+});
 
 // ─── Compatibility: Tidy5E NPC sheet ─────────────────────────────────────────
 

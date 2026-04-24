@@ -12,6 +12,12 @@ export const MAX_CUSTOM_CURRENCIES = 5;
 
 export const STANDARD_KEYS = ["cp", "sp", "ep", "gp", "pp"];
 
+// All keys that might ever need a visibility rule (standard + every custom slot)
+const ALL_POSSIBLE_KEYS = [
+    ...STANDARD_KEYS,
+    "custom1", "custom2", "custom3", "custom4", "custom5",
+];
+
 // ─── Currency data accessors ──────────────────────────────────────────────────
 
 /** Return the live array of configured custom currencies (never null). */
@@ -175,6 +181,38 @@ export function injectCurrencyIconCSS() {
 
     const el = document.createElement("style");
     el.id = STYLE_ID;
+    el.textContent = rules;
+    document.head.appendChild(el);
+}
+
+// ─── Visibility CSS (data-attribute approach) ─────────────────────────────────
+
+/**
+ * Inject (or replace) a <style> block with static CSS rules that hide
+ * individual currency slots by checking a `data-hide-currencies` attribute
+ * on the sheet's persistent root element.
+ *
+ * Usage: set  rootEl.dataset.hideCurrencies = "cp custom1"  on the sheet root
+ * and these rules will hide the matching label/li elements via CSS, without
+ * touching inner DOM nodes that get wiped on re-render.
+ *
+ * The :has() selector is supported in all evergreen browsers and in the
+ * Electron/Chromium version bundled with Foundry V12+.
+ */
+export function injectVisibilityCSS() {
+    const STYLE_ID = `${MODULE_ID}-visibility-styles`;
+    document.getElementById(STYLE_ID)?.remove();
+
+    const rules = ALL_POSSIBLE_KEYS.map(key => `\
+/* hide-when-0 for: ${key} */
+[data-hide-currencies~="${key}"] label:has(i.currency.${key}),
+[data-hide-currencies~="${key}"] li.${key},
+[data-hide-currencies~="${key}"] li[data-denomination="${key}"] {
+    display: none !important;
+}`).join("\n");
+
+    const el = document.createElement("style");
+    el.id    = STYLE_ID;
     el.textContent = rules;
     document.head.appendChild(el);
 }
