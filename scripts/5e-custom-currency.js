@@ -43,7 +43,10 @@ function applyStandardVisibility(html, actor) {
         if (vis === "always") continue;
         const amount = actor?.system?.currency?.[key] ?? 0;
         if (vis === "never" || (vis === "owned" && amount <= 0)) {
-            html.find(`.currency-item.${key}, li.currency.${key}, li[data-denomination="${key}"]`).hide();
+            // dnd5e 5.x: each currency is a <label> containing <i class="currency {key}">
+            // older dnd5e: <li class="{key}"> or <li data-denomination="{key}">
+            html.find(`i.currency.${key}`).closest("label, li").hide();
+            html.find(`.currency-item.${key}, li[data-denomination="${key}"]`).hide();
         }
     }
 }
@@ -100,8 +103,10 @@ function fixDnd5eIcons(html) {
  *    CONFIG patched too late)
  */
 function injectCustomCurrencies(html, actor) {
+    // dnd5e 5.x: <section class="currency"> containing <label> per coin
+    // older dnd5e: <ol/ul class="currency-list"> or <ul class="currency">
     const container = html.find(
-        "ol.currency-list, ul.currency-list, ul.currency"
+        "section.currency, ol.currency-list, ul.currency-list, ul.currency"
     ).first();
     if (!container.length) return;
 
@@ -109,35 +114,32 @@ function injectCustomCurrencies(html, actor) {
         const vis    = curr.visibility ?? "always";
         const amount = actor?.system?.currency?.[curr.id] ?? 0;
 
-        // ── Find native li rendered by dnd5e ──────────────────────────────
-        let li = container.find(
-            `li.${curr.id}, li[data-denomination="${curr.id}"]`
-        ).first();
+        // ── Find native element rendered by dnd5e ─────────────────────────
+        // dnd5e 5.x: <label> wrapping <i class="currency {id}">
+        // older dnd5e: <li class="{id}"> or <li data-denomination="{id}">
+        let row = container.find(`i.currency.${curr.id}`).closest("label, li").first();
+        if (!row.length) {
+            row = container.find(`li.${curr.id}, li[data-denomination="${curr.id}"]`).first();
+        }
 
-        if (li.length) {
-            li.addClass("custom-currency");
-            // dnd5e 5.x renders <i class="currency custom1"> and generates a
-            // CSS rule `background-image: url("${icon}")` from CONFIG at setup
-            // time.  Now that we set the `icon` field correctly, the <i> will
-            // display our image natively — no replacement needed.
-            // We only remove a stale img.currency-custom-icon if one was
-            // injected by an older version of this module.
-            li.find("img.currency-custom-icon").remove();
+        if (row.length) {
+            row.addClass("custom-currency");
+            // Remove any stale <img> injected by an older version of this module;
+            // dnd5e 5.x uses <i> + CSS background-image (set via CONFIG icon field).
+            row.find("img.currency-custom-icon").remove();
         } else {
-            // Fallback: dnd5e didn't render it — inject the full row.
-            li = $(`<li class="currency ${curr.id} custom-currency"
-                        data-denomination="${curr.id}"
-                        aria-label="${curr.name}">
-                      ${currencyImgTag(curr)}
-                      <input type="number"
-                             name="system.currency.${curr.id}"
-                             value="${amount}" min="0" placeholder="0"
-                             data-dtype="Number">
-                      <span class="denomination ${curr.id}">${curr.abbreviation}</span>
-                    </li>`);
-            container.append(li);
+            // Fallback: dnd5e didn't render it — inject a label row matching
+            // dnd5e 5.x's structure so it blends in visually.
+            row = $(`<label class="custom-currency" aria-label="${curr.name}">
+                       <i class="currency ${curr.id}" data-tooltip="${curr.name}"></i>
+                       <input type="text" inputmode="numeric" pattern="^[+=\\-]?\\d*"
+                              class="uninput always-interactive"
+                              name="system.currency.${curr.id}"
+                              value="${amount}" placeholder="0">
+                     </label>`);
+            container.append(row);
 
-            li.find("input").on("change", function () {
+            row.find("input").on("change", function () {
                 actor.update({
                     [`system.currency.${curr.id}`]: parseInt(this.value) || 0,
                 });
@@ -146,9 +148,9 @@ function injectCustomCurrencies(html, actor) {
 
         // ── Visibility ────────────────────────────────────────────────────
         if (vis === "never" || (vis === "owned" && amount <= 0)) {
-            li.hide();
+            row.hide();
         } else {
-            li.show();
+            row.show();
         }
     }
 }
@@ -184,7 +186,7 @@ function injectWealthTotal(html, actor) {
         Total wealth: ${totalGp.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${gpLabel}
     </div>`);
 
-    html.find("ol.currency-list, ul.currency-list, ul.currency").first().after(line);
+    html.find("section.currency, ol.currency-list, ul.currency-list, ul.currency").first().after(line);
 }
 
 // ─── Convert currency override ────────────────────────────────────────────────
