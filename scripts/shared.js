@@ -78,7 +78,11 @@ export function patch_currencyNames() {
         CONFIG.DND5E.currencies[curr.id] = {
             label:        curr.name,
             abbreviation: curr.abbreviation,
-            conversion:   curr.exchangeRate ?? 0,
+            // conversion: null = base denomination, not part of the standard chain.
+            // (The standard chain cp→sp→ep→gp→pp uses numeric conversion values.)
+            conversion:   null,
+            // img is read by dnd5e 4.x's sheet to render the coin icon.
+            img:          curr.img || DEFAULT_CURRENCY_ICON,
         };
     }
 }

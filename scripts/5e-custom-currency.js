@@ -1,6 +1,5 @@
 /**
  * 5E Custom Currency — main module entry point.
- * Registers hooks and implements all sheet/system integrations.
  */
 
 import { registerSettings }    from "./settings.js";
@@ -17,28 +16,20 @@ import {
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
 
-/** ApplicationV2 (V13) passes HTMLElement; FormApplication passes jQuery. */
 function normaliseHtml(html) {
     return html instanceof HTMLElement ? $(html) : html;
 }
 
-/** Resolve the Actor from a sheet regardless of Foundry version. */
 function actorFromSheet(sheet) {
     return sheet.actor ?? sheet.document ?? sheet.object ?? null;
 }
 
-/** Convenience wrapper for reading module settings. */
 function g(key) {
     try { return game.settings.get(MODULE_ID, key); } catch { return null; }
 }
 
 // ─── Standard-currency helpers ────────────────────────────────────────────────
 
-/**
- * Rename denomination abbreviation labels on an already-rendered sheet.
- * Uses multi-class selectors (.denomination.pp) rather than the fragile
- * exact-attribute form so extra classes from themes don't break matching.
- */
 function alterCharacterCurrency(html) {
     for (const key of STANDARD_KEYS) {
         const abrv = g(key + "AltAbrv");
@@ -46,17 +37,13 @@ function alterCharacterCurrency(html) {
     }
 }
 
-/**
- * Hide standard denomination rows whose visibility setting is not satisfied.
- * "always" → always show  |  "owned" → only if > 0  |  "never" → always hide
- */
 function applyStandardVisibility(html, actor) {
     for (const key of STANDARD_KEYS) {
-        const vis    = g(key + "Visibility") ?? "always";
+        const vis = g(key + "Visibility") ?? "always";
         if (vis === "always") continue;
         const amount = actor?.system?.currency?.[key] ?? 0;
         if (vis === "never" || (vis === "owned" && amount <= 0)) {
-            html.find(`.currency-item.${key}, li.currency.${key}`).hide();
+            html.find(`.currency-item.${key}, li.currency.${key}, li[data-denomination="${key}"]`).hide();
         }
     }
 }
@@ -64,95 +51,95 @@ function applyStandardVisibility(html, actor) {
 // ─── Custom-currency sheet injection ─────────────────────────────────────────
 
 /**
- * Inject custom currency rows into the character sheet currency bar.
+ * Ensure every custom currency has a visible row in the currency bar.
  *
- * Supports both the dnd5e V1 sheet  (ol.currency-list → li.currency-item)
- * and the V2 sheet                   (ul.currency      → li.currency).
- * Values come from actor flags; icons are per-currency user-configurable.
+ * dnd5e 4.x iterates CONFIG.DND5E.currencies when building the currency bar,
+ * so our custom currencies are rendered natively as long as we patched CONFIG
+ * before the sheet opened (done in the init hook).
+ *
+ * We still hook in to:
+ *  - Replace the icon (dnd5e falls back to a key-named SVG we don't have)
+ *  - Apply visibility rules
+ *  - Inject a fallback row with a system.currency input for sheets that
+ *    rendered before the CONFIG patch, or older dnd5e versions
  */
 function injectCustomCurrencies(html, actor) {
-    // dnd5e V1 sheet: ol.currency-list  (li.currency-item)
-    // dnd5e V2 sheet: ul.currency       (li.currency)       [dnd5e ≤3.x]
-    // dnd5e V2 sheet: ul.currency-list  (li.currency)       [dnd5e 4.x]
-    const container = html.find("ol.currency-list, ul.currency-list, ul.currency").first();
+    const container = html.find(
+        "ol.currency-list, ul.currency-list, ul.currency"
+    ).first();
     if (!container.length) return;
-
-    const isV1 = container.is("ol");
 
     for (const curr of getCustomCurrencies()) {
         const vis    = curr.visibility ?? "always";
-        const amount = actor?.getFlag(MODULE_ID, curr.id) ?? 0;
+        const amount = actor?.system?.currency?.[curr.id] ?? 0;
 
-        if (vis === "never") continue;
-        if (vis === "owned" && amount <= 0) continue;
+        const imgSrc   = curr.img || DEFAULT_CURRENCY_ICON;
+        const filter   = tintColorToFilter(curr.tintColor);
+        const imgStyle = filter ? ` style="filter:${filter}"` : "";
 
-        const imgSrc    = curr.img || DEFAULT_CURRENCY_ICON;
-        const filter    = tintColorToFilter(curr.tintColor);
-        const imgStyle  = filter ? ` style="filter:${filter}"` : "";
+        // ── Find native li rendered by dnd5e ──────────────────────────────
+        let li = container.find(
+            `li.${curr.id}, li[data-denomination="${curr.id}"]`
+        ).first();
 
-        const liClass   = isV1
-            ? `currency-item ${curr.id} custom-currency`
-            : `currency ${curr.id} custom-currency`;
+        if (li.length) {
+            // dnd5e rendered it — fix the icon (dnd5e falls back to a
+            // path like systems/dnd5e/icons/svg/currency/custom1.svg
+            // which doesn't exist, so it shows broken/empty)
+            li.addClass("custom-currency");
 
-        const li = $(`<li class="${liClass}" data-denomination="${curr.id}" aria-label="${curr.name}">
-                    <img class="currency-custom-icon" src="${imgSrc}" title="${curr.name}"${imgStyle} alt="${curr.name}">
-                    <input type="number"
-                           data-flag-currency="${curr.id}"
-                           value="${amount}" placeholder="0" min="0">
-                    <span class="denomination ${curr.id}">${curr.abbreviation}</span>
-                 </li>`);
+            const existingIcon = li.find("dnd5e-icon, img.currency-custom-icon").first();
+            if (existingIcon.length) {
+                existingIcon.attr("src", imgSrc);
+                if (filter) existingIcon.css("filter", filter);
+                else        existingIcon.css("filter", "");
+            } else {
+                li.prepend(
+                    `<img class="currency-custom-icon" src="${imgSrc}" alt="${curr.name}"${imgStyle}>`
+                );
+            }
+        } else {
+            // Fallback — dnd5e didn't render it; inject the full row.
+            // Use name="system.currency.[id]" so dnd5e's own form handler
+            // saves the value natively.
+            li = $(`<li class="currency ${curr.id} custom-currency"
+                        data-denomination="${curr.id}"
+                        aria-label="${curr.name}">
+                      <img class="currency-custom-icon"
+                           src="${imgSrc}" alt="${curr.name}"${imgStyle}>
+                      <input type="number"
+                             name="system.currency.${curr.id}"
+                             value="${amount}" min="0" placeholder="0"
+                             data-dtype="Number">
+                      <span class="denomination ${curr.id}">${curr.abbreviation}</span>
+                    </li>`);
+            container.append(li);
 
-        container.append(li);
-    }
-}
+            // Safety-net change handler for sheets where our injected input
+            // may not be caught by dnd5e's own form listener.
+            li.find("input").on("change", function () {
+                actor.update({
+                    [`system.currency.${curr.id}`]: parseInt(this.value) || 0,
+                });
+            });
+        }
 
-/**
- * Wire up events on injected custom currency inputs.
- *
- * We listen on both "change" AND "blur" so the flag is flushed to the
- * database even when the player clicks a button in another Foundry window
- * (e.g. the Item Piles merchant) without first clicking away from the input.
- * Without this, Item Piles can read a stale flag value mid-purchase.
- */
-function bindCustomCurrencyInputs(html, actor) {
-    html.find("[data-flag-currency]").on("change blur", function () {
-        const key      = $(this).data("flag-currency");
-        const newValue = parseInt($(this).val()) || 0;
-        const current  = actor.getFlag(MODULE_ID, key) ?? 0;
-        // Skip the update if the value hasn't actually changed to avoid
-        // unnecessary server round-trips on every focus-loss.
-        if (newValue !== current) actor.setFlag(MODULE_ID, key, newValue);
-    });
-}
-
-/**
- * After Item Piles (or anything else) updates an actor's flags, sync the
- * displayed values in any open sheet without waiting for a full re-render.
- */
-function refreshCustomCurrencyInputs(actor) {
-    for (const app of Object.values(ui.windows ?? {})) {
-        if (actorFromSheet(app) !== actor) continue;
-        const html = app.element instanceof $ ? app.element : $(app.element);
-        html.find("[data-flag-currency]").each(function () {
-            const key   = $(this).data("flag-currency");
-            const value = actor.getFlag(MODULE_ID, key) ?? 0;
-            $(this).val(value);
-        });
+        // ── Visibility ────────────────────────────────────────────────────
+        if (vis === "never" || (vis === "owned" && amount <= 0)) {
+            li.hide();
+        } else {
+            li.show();
+        }
     }
 }
 
 // ─── Wealth total ─────────────────────────────────────────────────────────────
 
-/**
- * Append a small "Total wealth: X GP" line below the currency bar.
- * Includes custom currencies that have a non-zero exchange rate.
- */
 function injectWealthTotal(html, actor) {
     if (!actor) return;
 
     let totalGp = 0;
 
-    // Standard currencies (only if depCur is true)
     if (g("depCur")) {
         const cpPerGp = getCpPerGp();
         const cur = actor.system?.currency ?? {};
@@ -163,10 +150,10 @@ function injectWealthTotal(html, actor) {
         totalGp += (cur.cp ?? 0) / cpPerGp;
     }
 
-    // Custom currencies with an exchange rate
     for (const curr of getCustomCurrencies()) {
         if (!curr.exchangeRate) continue;
-        const amount = actor.getFlag(MODULE_ID, curr.id) ?? 0;
+        // Values now live in system.currency, not flags
+        const amount = actor.system?.currency?.[curr.id] ?? 0;
         totalGp += amount * curr.exchangeRate;
     }
 
@@ -177,22 +164,11 @@ function injectWealthTotal(html, actor) {
         Total wealth: ${totalGp.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${gpLabel}
     </div>`);
 
-    html.find("ol.currency-list, ul.currency").first().after(line);
+    html.find("ol.currency-list, ul.currency-list, ul.currency").first().after(line);
 }
 
 // ─── Convert currency override ────────────────────────────────────────────────
 
-/**
- * Override Actor5e.convertCurrency to handle custom-currency chains.
- *
- * Each custom currency has a `convertsTo` field:
- *   "none"     → skip (not converted)
- *   "standard" → fold into CP pool (standard chain handles the rest)
- *   "customX"  → fold into another custom currency at convertRate:1
- *
- * Chains are resolved with up to MAX_CUSTOM_CURRENCIES passes so that
- * e.g. FrogCoins→SpiritCoins→(none) all converts in one click.
- */
 export function patchConvertCurrency() {
     const ActorClass = dnd5e?.documents?.Actor5e ?? CONFIG.Actor.documentClass;
     if (!ActorClass?.prototype?.convertCurrency) return;
@@ -203,34 +179,16 @@ export function patchConvertCurrency() {
         const customs = getCustomCurrencies().filter(
             c => c.convertsTo && c.convertsTo !== "none"
         );
+        if (customs.length === 0) return original.call(this);
 
-        // Migration: also pick up old-style participateConvert if convertsTo absent
-        const legacyCustoms = getCustomCurrencies().filter(
-            c => (!c.convertsTo || c.convertsTo === "none") && c.participateConvert && c.exchangeRate > 0
-        );
-
-        if (customs.length === 0 && legacyCustoms.length === 0) {
-            return original.call(this);
-        }
-
-        // ── Snapshot current amounts ──────────────────────────────────────────
+        // Snapshot amounts from system.currency
         const amounts = {};
         for (const c of getCustomCurrencies()) {
-            amounts[c.id] = this.getFlag(MODULE_ID, c.id) ?? 0;
+            amounts[c.id] = this.system?.currency?.[c.id] ?? 0;
         }
         amounts["__cp__"] = this.system?.currency?.cp ?? 0;
 
-        // ── Legacy participateConvert path ────────────────────────────────────
-        if (legacyCustoms.length > 0) {
-            const cpPerGp = getCpPerGp();
-            for (const curr of legacyCustoms) {
-                if (amounts[curr.id] <= 0) continue;
-                amounts["__cp__"] += Math.round(amounts[curr.id] * curr.exchangeRate * cpPerGp);
-                amounts[curr.id]   = 0;
-            }
-        }
-
-        // ── Chain resolution (up to N passes for chains up to N deep) ─────────
+        // Resolve chains (multiple passes for depth > 1)
         const MAX_PASSES = getCustomCurrencies().length + 1;
         for (let pass = 0; pass < MAX_PASSES; pass++) {
             let changed = false;
@@ -239,12 +197,11 @@ export function patchConvertCurrency() {
                 const amount = amounts[curr.id] ?? 0;
                 if (amount < rate) continue;
 
-                const whole     = Math.floor(amount / rate);
+                const whole      = Math.floor(amount / rate);
                 amounts[curr.id] = amount % rate;
                 changed          = true;
 
                 if (curr.convertsTo === "standard") {
-                    // 1 whole unit = 1 CP
                     amounts["__cp__"] += whole;
                 } else {
                     amounts[curr.convertsTo] = (amounts[curr.convertsTo] ?? 0) + whole;
@@ -253,12 +210,12 @@ export function patchConvertCurrency() {
             if (!changed) break;
         }
 
-        // ── Build update payload ──────────────────────────────────────────────
+        // Build update using system.currency paths
         const updates = {};
         for (const c of getCustomCurrencies()) {
-            const orig = this.getFlag(MODULE_ID, c.id) ?? 0;
+            const orig = this.system?.currency?.[c.id] ?? 0;
             if (amounts[c.id] !== orig) {
-                updates[`flags.${MODULE_ID}.${c.id}`] = amounts[c.id];
+                updates[`system.currency.${c.id}`] = amounts[c.id];
             }
         }
         const origCp = this.system?.currency?.cp ?? 0;
@@ -268,7 +225,6 @@ export function patchConvertCurrency() {
 
         if (Object.keys(updates).length > 0) await this.update(updates);
 
-        // Run the standard chain (cp→sp→ep→gp→pp) only when depCur is on
         if (game.settings.get(MODULE_ID, "depCur")) {
             return original.call(this);
         }
@@ -279,49 +235,35 @@ export function patchConvertCurrency() {
 
 // ─── Item Piles optional sync ─────────────────────────────────────────────────
 
-/**
- * Sync our custom currencies into Item Piles' currency list.
- * Called only when Item Piles is active and the current user is GM.
- * We add/update our entries and leave all other Item Piles currencies intact.
- */
 export async function syncItemPiles() {
     if (!game.modules.get("item-piles")?.active) return;
     if (!game.user?.isGM) return;
-    if (!game.itempiles?.API?.setCurrencies) return;
+    const api = game.itempiles?.API;
+    if (!api?.setCurrencies) return;
 
     const customs = getCustomCurrencies();
-
-    // Strip previously injected entries so we can replace them cleanly
-    const existing = game.itempiles.API.CURRENCIES.filter(
-        c => !c.data?.path?.startsWith(`flags.${MODULE_ID}`)
+    const existing = (api.CURRENCIES ?? []).filter(
+        c => !c.data?.path?.startsWith(`system.currency.custom`)
+           && !c.data?.path?.startsWith(`flags.${MODULE_ID}`)
     );
 
     const entries = customs.map(curr => {
-        // exchangeRate > 0 required for Item Piles to show prices in the
-        // merchant price column; fall back to tiny non-zero when not set.
-        const exchangeRate = (curr.exchangeRate > 0) ? curr.exchangeRate : 0.0001;
-
-        // Item Piles' Svelte UI needs an absolute path for icons to resolve.
         const rawImg = curr.img || DEFAULT_CURRENCY_ICON;
-        const img = rawImg.startsWith("http") || rawImg.startsWith("/")
-            ? rawImg
-            : `/${rawImg}`;
-
+        const img    = rawImg.startsWith("http") || rawImg.startsWith("/")
+            ? rawImg : `/${rawImg}`;
         return {
             type:         "attribute",
             name:         curr.name,
             img,
             abbreviation: `{#}${curr.abbreviation}`,
-            // NO custom id field — Item Piles matches currencies by path;
-            // adding a non-standard id key broke abbreviation lookups.
-            data:         { path: `flags.${MODULE_ID}.${curr.id}` },
+            data:         { path: `system.currency.${curr.id}` },
             primary:      false,
-            exchangeRate,
+            exchangeRate: (curr.exchangeRate > 0) ? curr.exchangeRate : 0.0001,
         };
     });
 
     try {
-        await game.itempiles.API.setCurrencies([...existing, ...entries]);
+        await api.setCurrencies([...existing, ...entries]);
         console.log("5e-custom-currency | Synced custom currencies to Item Piles");
     } catch (err) {
         console.warn("5e-custom-currency | Item Piles sync failed:", err);
@@ -341,7 +283,6 @@ function handleCharacterSheet(sheet, html) {
     if (actor) {
         applyStandardVisibility(html, actor);
         injectCustomCurrencies(html, actor);
-        bindCustomCurrencyInputs(html, actor);
         injectWealthTotal(html, actor);
     }
 }
@@ -357,19 +298,21 @@ function removeConvertCurrency(html) {
 Hooks.once("init", () => {
     console.log("5e-custom-currency | Init");
     registerSettings();
-    // Pre-load the manager template so it opens without delay
+    // Patch CONFIG before actor data models initialize so that dnd5e's
+    // MappingField for system.currency includes our custom keys from the start.
+    patch_currencyNames();
     loadTemplates([`modules/${MODULE_ID}/templates/currency-manager.hbs`]);
 });
 
 Hooks.on("ready", () => {
     console.log("5e-custom-currency | Ready");
 
+    // Re-patch after ready in case any other module reset CONFIG.DND5E.currencies
     patch_currencyNames();
 
     if (g("depCur")) {
         patch_currencyConversion();
     } else {
-        // Stub out convertCurrency for the base Actor class path only
         const ActorClass = dnd5e?.documents?.Actor5e ?? CONFIG.Actor.documentClass;
         if (ActorClass?.prototype) {
             ActorClass.prototype.convertCurrency = async function () {};
@@ -378,28 +321,14 @@ Hooks.on("ready", () => {
 
     patchConvertCurrency();
 
-    // Item Piles — optional, non-blocking
     if (game.modules.get("item-piles")?.active) {
-        if (game.itempiles) {
-            syncItemPiles();
-        } else {
-            Hooks.once("item-piles-ready", syncItemPiles);
-        }
+        if (game.itempiles) syncItemPiles();
+        else Hooks.once("item-piles-ready", syncItemPiles);
     }
 });
 
-// Character sheet — dnd5e V1 (FormApplication)
 Hooks.on("renderActorSheet5eCharacter",  handleCharacterSheet);
-// Character sheet — dnd5e V2 (ApplicationV2, default since dnd5e 3.2 / sole sheet in 4.x)
 Hooks.on("renderActorSheet5eCharacter2", handleCharacterSheet);
-
-// When an actor's flags change (e.g. Item Piles deducts currency after a
-// purchase), immediately refresh the displayed values in any open sheet
-// without waiting for the next full re-render.
-Hooks.on("updateActor", (actor, changes) => {
-    if (!changes?.flags?.[MODULE_ID]) return;
-    refreshCustomCurrencyInputs(actor);
-});
 
 // ─── Compatibility: Tidy5E NPC sheet ─────────────────────────────────────────
 
@@ -452,7 +381,6 @@ Hooks.on("renderPartyOverviewApp", (sheet, html) => {
 });
 
 function _alterPartyOverviewCurrency(html, sheet) {
-    // Rename standard currency headers
     const headers = html.find('div[data-tab="currencies"] div.table-row.header div.text.icon');
     const labels  = ["ppAlt","gpAlt","epAlt","spAlt","cpAlt"].map(k => g(k));
     labels.forEach((label, i) => { if (label && headers[i]) $(headers[i]).text(label); });
@@ -460,26 +388,20 @@ function _alterPartyOverviewCurrency(html, sheet) {
         $(headers[5]).text(`${labels[1]} (${game.i18n.localize("party-overview.TOTAL")})`);
     }
 
-    // Inject custom currency totals below the standard table
     const customs = getCustomCurrencies().filter(c => c.visibility !== "never");
     if (!customs.length) return;
 
     const currencyTab = html.find('div[data-tab="currencies"]');
     if (!currencyTab.length) return;
 
-    // Collect party members' flag values
-    const members = sheet.object?.system?.members
-        ?? sheet.document?.system?.members
-        ?? [];
-    const actors  = members
-        .map(m => game.actors.get(m.actor?.id ?? m.id))
-        .filter(Boolean);
-
+    const members = sheet.object?.system?.members ?? sheet.document?.system?.members ?? [];
+    const actors  = members.map(m => game.actors.get(m.actor?.id ?? m.id)).filter(Boolean);
     if (!actors.length) return;
 
     const rows = customs.map(curr => {
+        // Values are in system.currency
         const total = actors.reduce(
-            (sum, a) => sum + (a.getFlag(MODULE_ID, curr.id) ?? 0), 0
+            (sum, a) => sum + (a.system?.currency?.[curr.id] ?? 0), 0
         );
         return `<div class="table-row custom-currency-total flexrow">
             <img src="${curr.img || DEFAULT_CURRENCY_ICON}"
@@ -490,7 +412,8 @@ function _alterPartyOverviewCurrency(html, sheet) {
     }).join("");
 
     currencyTab.append(`
-        <div class="custom-currency-party-totals" style="margin-top:8px;border-top:1px solid #ccc;padding-top:6px;">
+        <div class="custom-currency-party-totals"
+             style="margin-top:8px;border-top:1px solid #ccc;padding-top:6px;">
             <strong style="font-size:0.85em;">Custom Currencies</strong>
             ${rows}
         </div>
