@@ -286,6 +286,11 @@ export function patchSheetContext() {
             if (!actor?.system?.currency) return ctx;
 
             const hidden = new Set(buildHiddenList(actor));
+
+            // Diagnostic — log context keys and hidden list every time a sheet renders
+            console.log(`5e-custom-currency | _prepareContext [${SheetClass.name}] actor=${actor.name}, hidden=[${[...hidden].join(",")}], ctx.keys=${Object.keys(ctx).join(",")}`);
+            if (ctx.currencies !== undefined) console.log(`5e-custom-currency | ctx.currencies=`, JSON.stringify(ctx.currencies)?.slice(0, 300));
+
             if (!hidden.size) return ctx;
 
             // dnd5e 5.x: context.currencies is an array of { key, label, value, ... }
