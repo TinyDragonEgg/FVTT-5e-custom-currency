@@ -286,20 +286,27 @@ export function patchSheetContext() {
             if (!actor?.system?.currency) return ctx;
 
             const hidden = new Set(buildHiddenList(actor));
-
-            // Diagnostic — log context keys and hidden list every time a sheet renders
-            console.log(`5e-custom-currency | _prepareContext [${SheetClass.name}] actor=${actor.name}, hidden=[${[...hidden].join(",")}], ctx.keys=${Object.keys(ctx).join(",")}`);
-            if (ctx.currencies !== undefined) console.log(`5e-custom-currency | ctx.currencies=`, JSON.stringify(ctx.currencies)?.slice(0, 300));
-
             if (!hidden.size) return ctx;
 
-            // dnd5e 5.x: context.currencies is an array of { key, label, value, ... }
-            if (Array.isArray(ctx.currencies)) {
-                ctx.currencies = ctx.currencies.filter(c => !hidden.has(c.key ?? c.abbr ?? c.id));
-            }
-            // Older structure / nested paths
-            if (Array.isArray(ctx.data?.currency)) {
-                ctx.data.currency = ctx.data.currency.filter(c => !hidden.has(c.key ?? c.id));
+            // dnd5e 5.x passes the global CONFIG object into the template context
+            // as ctx.CONFIG.  The currency bar template iterates
+            // CONFIG.DND5E.currencies directly, so there is no ctx.currencies
+            // array to filter — we must shadow the currencies map on ctx.CONFIG.
+            //
+            // We shallow-copy the path ctx.CONFIG → DND5E → currencies so that
+            // the global CONFIG object is never mutated (thread-safe across
+            // simultaneous sheet renders).
+            if (ctx.CONFIG?.DND5E?.currencies) {
+                ctx.CONFIG = {
+                    ...ctx.CONFIG,
+                    DND5E: {
+                        ...ctx.CONFIG.DND5E,
+                        currencies: Object.fromEntries(
+                            Object.entries(ctx.CONFIG.DND5E.currencies)
+                                  .filter(([key]) => !hidden.has(key))
+                        ),
+                    },
+                };
             }
 
             return ctx;
@@ -307,17 +314,11 @@ export function patchSheetContext() {
     };
 
     // Patch every sheet class registered for any actor type
-    let patchCount = 0;
-    for (const [actorType, classes] of Object.entries(CONFIG.Actor.sheetClasses ?? {})) {
-        for (const [sheetId, entry] of Object.entries(classes)) {
-            const cls = entry.cls ?? entry;
-            const has = !!cls?.prototype?._prepareContext;
-            console.log(`5e-custom-currency | patchSheetContext: ${actorType}/${sheetId} has _prepareContext=${has}`);
-            tryPatch(cls);
-            if (has) patchCount++;
+    for (const classes of Object.values(CONFIG.Actor.sheetClasses ?? {})) {
+        for (const entry of Object.values(classes)) {
+            tryPatch(entry.cls ?? entry);
         }
     }
-    console.log(`5e-custom-currency | patchSheetContext: patched ${patchCount} sheet class(es)`);
 }
 
 // ─── Convert currency override ────────────────────────────────────────────────
@@ -509,11 +510,7 @@ const _handled = new WeakSet();
 
 Hooks.on("render", (app, html) => {
     const actor = actorFromSheet(app);
-    // Diagnostic — remove once visibility is confirmed working
-    console.log(`5e-custom-currency | render hook: app=${app?.constructor?.name}, actor=${actor?.name ?? "none"}, hasCurrency=${!!actor?.system?.currency}`);
     if (!actor?.system?.currency) return;
-    const hidden = buildHiddenList(actor);
-    console.log(`5e-custom-currency | hidden list: [${hidden.join(", ")}]  (customCurrencies: ${JSON.stringify(getCustomCurrencies().map(c => ({id:c.id,vis:c.visibility})))})`);
     _handled.add(app);
     if (actor.type === "character") handleCharacterSheet(app, html);
     else handleNpcSheet(app, html);
