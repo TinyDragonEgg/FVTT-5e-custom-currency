@@ -461,6 +461,68 @@ function removeConvertCurrency(html) {
     html.find('[title="Convert Currency"]').remove();
 }
 
+// ─── dnd5e-inventory patch ────────────────────────────────────────────────────
+
+/**
+ * Patch dnd5e-inventory's connectedCallback so that every time the element
+ * renders its currency bar into the light DOM we immediately hide any
+ * currencies whose visibility setting says they should be hidden.
+ *
+ * The element uses light DOM (confirmed by diagnostic), so querySelectorAll
+ * and style.display work normally.  We set up a MutationObserver on the
+ * element itself — not the outer sheet root — so we only watch the exact
+ * subtree where currencies appear.
+ */
+export async function patchDnd5eInventory() {
+    await customElements.whenDefined("dnd5e-inventory");
+    const cls = customElements.get("dnd5e-inventory");
+    if (!cls?.prototype?.connectedCallback) return;
+
+    const origCC = cls.prototype.connectedCallback;
+    const origDC = cls.prototype.disconnectedCallback;
+
+    cls.prototype.connectedCallback = function () {
+        if (origCC) origCC.call(this);
+
+        // Disconnect any stale observer from a previous connection
+        this._5eccObs?.disconnect();
+
+        const el = this;
+        let debounce = null;
+
+        const obs = new MutationObserver(() => {
+            clearTimeout(debounce);
+            debounce = setTimeout(() => {
+                // actor / app getters are available after the element is connected
+                const actor = el.actor;
+                if (!actor?.system?.currency) return;
+
+                const hidden = new Set(buildHiddenList(actor));
+                const allKeys = [...STANDARD_KEYS, ...getCustomCurrencies().map(c => c.id)];
+
+                for (const key of allKeys) {
+                    el.querySelectorAll(`i.currency.${key}`).forEach(icon => {
+                        const row = icon.closest("label, li");
+                        if (!row) return;
+                        row.style.display = hidden.has(key) ? "none" : "";
+                    });
+                }
+            }, 50);
+        });
+
+        this._5eccObs = obs;
+        obs.observe(el, { childList: true, subtree: true });
+    };
+
+    cls.prototype.disconnectedCallback = function () {
+        if (origDC) origDC.call(this);
+        this._5eccObs?.disconnect();
+        delete this._5eccObs;
+    };
+
+    console.log("5e-custom-currency | Patched dnd5e-inventory");
+}
+
 // ─── Hooks ────────────────────────────────────────────────────────────────────
 
 Hooks.once("init", () => {
@@ -491,17 +553,7 @@ Hooks.on("ready", () => {
 
     patchConvertCurrency();
     patchSheetContext();
-
-    // Diagnostic: inspect dnd5e-inventory so we know where to hook
-    customElements.whenDefined("dnd5e-inventory").then(() => {
-        const cls = customElements.get("dnd5e-inventory");
-        if (!cls) return;
-        const methods = Object.getOwnPropertyNames(cls.prototype);
-        console.log("5e-custom-currency | dnd5e-inventory prototype methods:", methods.join(", "));
-        // Check shadow DOM by creating a detached element
-        const probe = new cls();
-        console.log("5e-custom-currency | dnd5e-inventory uses shadowRoot:", !!probe.shadowRoot);
-    });
+    patchDnd5eInventory();
 
     if (game.modules.get("item-piles")?.active) {
         if (game.itempiles) syncItemPiles();
