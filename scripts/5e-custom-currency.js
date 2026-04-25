@@ -92,6 +92,8 @@ function applyVisibility(html, actor) {
     // ── 2. Direct jQuery hide/show ────────────────────────────────────────────
     function hideNow() {
         if (!rootEl.isConnected) return;
+        // If the user clicked "show all currencies", don't re-hide until they toggle back
+        if (rootEl.dataset.ccShowAll === "1") return;
         const allKeys = [...STANDARD_KEYS, ...getCustomCurrencies().map(c => c.id)];
         for (const key of allKeys) {
             if (hiddenSet.has(key)) {
@@ -127,6 +129,71 @@ function applyVisibility(html, actor) {
     // Belt-and-suspenders fallbacks for slow async renders
     setTimeout(hideNow, 100);
     setTimeout(hideNow, 400);
+}
+
+// ─── Show-all toggle button ───────────────────────────────────────────────────
+
+/**
+ * Inject a small eye-toggle button at the end of the currency bar.
+ * Clicking it temporarily reveals every currency (even hidden ones) so the
+ * user can enter values, then clicking again restores the visibility rules.
+ *
+ * The "show all" state is stored on rootEl.dataset.ccShowAll so it survives
+ * partial re-renders of the inventory section.
+ *
+ * Only injected when at least one currency is currently hidden for this actor.
+ */
+function injectCurrencyToggle(rootEl, actor) {
+    if (!(rootEl instanceof HTMLElement)) return;
+    if (!buildHiddenList(actor).length) return; // nothing hidden → no button needed
+
+    const SECTION_SEL = "section.currency, ol.currency-list, ul.currency-list, ul.currency";
+    const BTN_SEL     = ".currency-show-hidden-btn";
+
+    function addButton() {
+        if (!rootEl.isConnected) return;
+        const section = rootEl.querySelector(SECTION_SEL);
+        if (!section) return;
+        if (section.querySelector(BTN_SEL)) return; // already present
+
+        const isShowAll = rootEl.dataset.ccShowAll === "1";
+
+        const btn = document.createElement("button");
+        btn.type      = "button";
+        btn.className = "currency-show-hidden-btn" + (isShowAll ? " active" : "");
+        btn.setAttribute("data-tooltip", isShowAll ? "Restore visibility" : "Show all currencies");
+        btn.innerHTML = `<i class="fas fa-${isShowAll ? "eye-slash" : "eye"}"></i>`;
+
+        btn.addEventListener("click", (ev) => {
+            ev.preventDefault();
+            ev.stopPropagation();
+
+            const nowShowAll = rootEl.dataset.ccShowAll !== "1";
+            rootEl.dataset.ccShowAll = nowShowAll ? "1" : "0";
+            btn.classList.toggle("active", nowShowAll);
+            btn.setAttribute("data-tooltip", nowShowAll ? "Restore visibility" : "Show all currencies");
+            btn.querySelector("i").className = `fas fa-${nowShowAll ? "eye-slash" : "eye"}`;
+
+            if (nowShowAll) {
+                // Force every currency label/row visible
+                const allKeys = [...STANDARD_KEYS, ...getCustomCurrencies().map(c => c.id)];
+                for (const key of allKeys) {
+                    $(rootEl).find(`i.currency.${key}`).closest("label, li").show();
+                    $(rootEl).find(`li.${key}, li[data-denomination="${key}"]`).show();
+                }
+            } else {
+                // Re-apply the normal visibility rules
+                applyVisibility($(rootEl), actor);
+            }
+        });
+
+        section.appendChild(btn);
+    }
+
+    // Try immediately, then after async inventory renders
+    addButton();
+    setTimeout(addButton, 150);
+    setTimeout(addButton, 500);
 }
 
 // ─── Custom-currency icon helpers ────────────────────────────────────────────
@@ -442,6 +509,7 @@ function handleCharacterSheet(sheet, html) {
 
     if (actor) {
         applyVisibility(html, actor);
+        injectCurrencyToggle(html[0], actor);
         injectCustomCurrencies(html, actor);
         injectWealthTotal(html, actor);
     }
@@ -457,6 +525,7 @@ function handleNpcSheet(sheet, html) {
 
     if (actor) {
         applyVisibility(html, actor);
+        injectCurrencyToggle(html[0], actor);
         injectCustomCurrencies(html, actor);
     }
 }
