@@ -484,34 +484,43 @@ export async function patchDnd5eInventory() {
     cls.prototype.connectedCallback = function () {
         if (origCC) origCC.call(this);
 
+        const el = this;
+        console.log("5e-custom-currency | inventory connectedCallback, actor:", el.actor?.name ?? "null");
+
+        function applyHiding(source) {
+            const actor = el.actor;
+            console.log(`5e-custom-currency | applyHiding(${source}) actor=${actor?.name ?? "null"}`);
+            if (!actor?.system?.currency) return;
+            const hidden = new Set(buildHiddenList(actor));
+            console.log(`5e-custom-currency | hidden=[${[...hidden].join(",")}]`);
+            const allKeys = [...STANDARD_KEYS, ...getCustomCurrencies().map(c => c.id)];
+            for (const key of allKeys) {
+                const icons = [...el.querySelectorAll(`i.currency.${key}`)];
+                console.log(`5e-custom-currency | key=${key} found=${icons.length} shouldHide=${hidden.has(key)}`);
+                for (const icon of icons) {
+                    const row = icon.closest("label, li");
+                    if (row) row.style.display = hidden.has(key) ? "none" : "";
+                }
+            }
+        }
+
         // Disconnect any stale observer from a previous connection
         this._5eccObs?.disconnect();
 
-        const el = this;
-        let debounce = null;
+        // Run immediately — catches synchronous renders inside origCC
+        applyHiding("immediate");
 
+        // Watch for async renders (origCC may start an async render)
+        let debounce = null;
         const obs = new MutationObserver(() => {
             clearTimeout(debounce);
-            debounce = setTimeout(() => {
-                // actor / app getters are available after the element is connected
-                const actor = el.actor;
-                if (!actor?.system?.currency) return;
-
-                const hidden = new Set(buildHiddenList(actor));
-                const allKeys = [...STANDARD_KEYS, ...getCustomCurrencies().map(c => c.id)];
-
-                for (const key of allKeys) {
-                    el.querySelectorAll(`i.currency.${key}`).forEach(icon => {
-                        const row = icon.closest("label, li");
-                        if (!row) return;
-                        row.style.display = hidden.has(key) ? "none" : "";
-                    });
-                }
-            }, 50);
+            debounce = setTimeout(() => applyHiding("observer"), 50);
         });
-
         this._5eccObs = obs;
         obs.observe(el, { childList: true, subtree: true });
+
+        // Belt-and-suspenders: also run after a short delay
+        setTimeout(() => applyHiding("timeout-200"), 200);
     };
 
     cls.prototype.disconnectedCallback = function () {
