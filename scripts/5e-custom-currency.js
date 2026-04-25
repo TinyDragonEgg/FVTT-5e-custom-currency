@@ -148,7 +148,7 @@ function applyVisibility(html, actor) {
  *
  * Only injected when at least one currency is currently hidden for this actor.
  */
-function injectCurrencyToggle(rootEl, actor, sheet) {
+function injectCurrencyToggle(rootEl, actor, sheet, context = null) {
     if (!(rootEl instanceof HTMLElement)) return;
     if (!buildHiddenList(actor).length) return; // nothing hidden → no button needed
 
@@ -156,16 +156,35 @@ function injectCurrencyToggle(rootEl, actor, sheet) {
     const BTN_SEL     = ".currency-show-hidden-btn";
 
     /**
-     * In dnd5e 5.x, ActorSheetV2.isEditable returns true only when the user
-     * has owner permission AND the sheet is in edit mode (not play mode).
-     * That's exactly when we want the button visible.
+     * Determine whether the sheet is currently in edit mode.
      *
-     * Fallback: if sheet.isEditable isn't available, check for the mode-edit
-     * CSS class that dnd5e adds to the root element.
+     * Priority order — stops at the first definitive answer:
+     *
+     * 1. sheet.mode  — dnd5e 5.x ActorSheetV2 exposes a public getter that
+     *    returns MODES.PLAY (1) or MODES.EDIT (2).  Most reliable.
+     *
+     * 2. context.editable — passed from the V2 render hook; dnd5e sets this
+     *    in _prepareContext from isEditable which DOES include the mode check
+     *    there.  Only valid on the initial render call, not from the observer.
+     *
+     * 3. sheet.isEditable — in some dnd5e versions this also includes the mode
+     *    check; in others it only checks ownership.  Used as tertiary fallback.
+     *
+     * 4. DOM class / dataset checks — last resort.
      */
     function isEditMode() {
+        // 1. Public mode getter (dnd5e 5.x)
+        if (typeof sheet?.mode === "number") {
+            const EDIT = sheet.constructor?.MODES?.EDIT ?? 2;
+            return sheet.mode === EDIT;
+        }
+        // 2. Render-context editable flag
+        if (context && typeof context.editable === "boolean") return context.editable;
+        // 3. isEditable (may or may not include mode in this dnd5e version)
         if (sheet && typeof sheet.isEditable === "boolean") return sheet.isEditable;
-        // CSS-class fallback (belt-and-suspenders)
+        // 4. DOM fallbacks
+        if (rootEl.classList.contains("locked")) return false;
+        if (rootEl.dataset.mode) return rootEl.dataset.mode === "edit";
         const hasToggle = rootEl.classList.contains("mode-play")
                        || rootEl.classList.contains("mode-edit");
         return !hasToggle || rootEl.classList.contains("mode-edit");
@@ -541,7 +560,7 @@ export async function syncItemPiles() {
 
 // ─── Shared sheet handlers ────────────────────────────────────────────────────
 
-function handleCharacterSheet(sheet, html) {
+function handleCharacterSheet(sheet, html, context = null) {
     html = normaliseHtml(html);
     const actor = actorFromSheet(sheet);
 
@@ -551,14 +570,14 @@ function handleCharacterSheet(sheet, html) {
 
     if (actor) {
         applyVisibility(html, actor);
-        injectCurrencyToggle(html[0], actor, sheet);
+        injectCurrencyToggle(html[0], actor, sheet, context);
         injectCustomCurrencies(html, actor);
         injectWealthTotal(html, actor);
     }
 }
 
 /** Apply visibility / icon fixes to NPC / vehicle sheets. */
-function handleNpcSheet(sheet, html) {
+function handleNpcSheet(sheet, html, context = null) {
     html = normaliseHtml(html);
     const actor = actorFromSheet(sheet);
 
@@ -567,7 +586,7 @@ function handleNpcSheet(sheet, html) {
 
     if (actor) {
         applyVisibility(html, actor);
-        injectCurrencyToggle(html[0], actor, sheet);
+        injectCurrencyToggle(html[0], actor, sheet, context);
         injectCustomCurrencies(html, actor);
     }
 }
@@ -646,12 +665,13 @@ function registerDynamicRenderHooks() {
             if (!className || seen.has(className)) continue;
             seen.add(className);
 
-            Hooks.on(`render${className}`, (app, html) => {
+            // V2 render hook passes (app, html, context, options)
+            Hooks.on(`render${className}`, (app, html, context, options) => {
                 html = normaliseHtml(html);
                 const actor = actorFromSheet(app);
                 if (!actor?.system?.currency) return;
-                if (actor.type === "character") handleCharacterSheet(app, html);
-                else handleNpcSheet(app, html);
+                if (actor.type === "character") handleCharacterSheet(app, html, context);
+                else handleNpcSheet(app, html, context);
             });
         }
     }
@@ -727,8 +747,8 @@ Hooks.on("render", (app, html) => {
 
 // Legacy class-specific hooks — fire only if "render" didn't already handle it
 // (covers FVTT V12 / older dnd5e where "render" may not exist or fire differently)
-function _legacyCharacter(app, html) { if (!_handled.has(app)) handleCharacterSheet(app, html); }
-function _legacyNpc(app, html)       { if (!_handled.has(app)) handleNpcSheet(app, html); }
+function _legacyCharacter(app, html) { if (!_handled.has(app)) handleCharacterSheet(app, html, null); }
+function _legacyNpc(app, html)       { if (!_handled.has(app)) handleNpcSheet(app, html, null); }
 
 Hooks.on("renderActorSheet5eCharacter",  _legacyCharacter);
 Hooks.on("renderActorSheet5eCharacter2", _legacyCharacter);
