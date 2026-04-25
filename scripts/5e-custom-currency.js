@@ -302,11 +302,17 @@ export function patchSheetContext() {
     };
 
     // Patch every sheet class registered for any actor type
-    for (const classes of Object.values(CONFIG.Actor.sheetClasses ?? {})) {
-        for (const entry of Object.values(classes)) {
-            tryPatch(entry.cls ?? entry);
+    let patchCount = 0;
+    for (const [actorType, classes] of Object.entries(CONFIG.Actor.sheetClasses ?? {})) {
+        for (const [sheetId, entry] of Object.entries(classes)) {
+            const cls = entry.cls ?? entry;
+            const has = !!cls?.prototype?._prepareContext;
+            console.log(`5e-custom-currency | patchSheetContext: ${actorType}/${sheetId} has _prepareContext=${has}`);
+            tryPatch(cls);
+            if (has) patchCount++;
         }
     }
+    console.log(`5e-custom-currency | patchSheetContext: patched ${patchCount} sheet class(es)`);
 }
 
 // ─── Convert currency override ────────────────────────────────────────────────
@@ -498,7 +504,11 @@ const _handled = new WeakSet();
 
 Hooks.on("render", (app, html) => {
     const actor = actorFromSheet(app);
+    // Diagnostic — remove once visibility is confirmed working
+    console.log(`5e-custom-currency | render hook: app=${app?.constructor?.name}, actor=${actor?.name ?? "none"}, hasCurrency=${!!actor?.system?.currency}`);
     if (!actor?.system?.currency) return;
+    const hidden = buildHiddenList(actor);
+    console.log(`5e-custom-currency | hidden list: [${hidden.join(", ")}]  (customCurrencies: ${JSON.stringify(getCustomCurrencies().map(c => ({id:c.id,vis:c.visibility})))})`);
     _handled.add(app);
     if (actor.type === "character") handleCharacterSheet(app, html);
     else handleNpcSheet(app, html);
