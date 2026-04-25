@@ -492,6 +492,17 @@ Hooks.on("ready", () => {
     patchConvertCurrency();
     patchSheetContext();
 
+    // Diagnostic: inspect dnd5e-inventory so we know where to hook
+    customElements.whenDefined("dnd5e-inventory").then(() => {
+        const cls = customElements.get("dnd5e-inventory");
+        if (!cls) return;
+        const methods = Object.getOwnPropertyNames(cls.prototype);
+        console.log("5e-custom-currency | dnd5e-inventory prototype methods:", methods.join(", "));
+        // Check shadow DOM by creating a detached element
+        const probe = new cls();
+        console.log("5e-custom-currency | dnd5e-inventory uses shadowRoot:", !!probe.shadowRoot);
+    });
+
     if (game.modules.get("item-piles")?.active) {
         if (game.itempiles) syncItemPiles();
         else Hooks.once("item-piles-ready", syncItemPiles);
