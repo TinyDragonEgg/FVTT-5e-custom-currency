@@ -148,7 +148,7 @@ function applyVisibility(html, actor) {
  *
  * Only injected when at least one currency is currently hidden for this actor.
  */
-function injectCurrencyToggle(rootEl, actor) {
+function injectCurrencyToggle(rootEl, actor, sheet) {
     if (!(rootEl instanceof HTMLElement)) return;
     if (!buildHiddenList(actor).length) return; // nothing hidden → no button needed
 
@@ -156,13 +156,16 @@ function injectCurrencyToggle(rootEl, actor) {
     const BTN_SEL     = ".currency-show-hidden-btn";
 
     /**
-     * dnd5e 5.x character sheets add "mode-play" / "mode-edit" classes to the
-     * sheet root when the user toggles between the two modes.  We only want the
-     * button visible in edit mode.  Sheets that don't use that toggle (NPCs,
-     * vehicles, etc.) won't have either class, so we always show the button for
-     * them.
+     * In dnd5e 5.x, ActorSheetV2.isEditable returns true only when the user
+     * has owner permission AND the sheet is in edit mode (not play mode).
+     * That's exactly when we want the button visible.
+     *
+     * Fallback: if sheet.isEditable isn't available, check for the mode-edit
+     * CSS class that dnd5e adds to the root element.
      */
     function isEditMode() {
+        if (sheet && typeof sheet.isEditable === "boolean") return sheet.isEditable;
+        // CSS-class fallback (belt-and-suspenders)
         const hasToggle = rootEl.classList.contains("mode-play")
                        || rootEl.classList.contains("mode-edit");
         return !hasToggle || rootEl.classList.contains("mode-edit");
@@ -220,12 +223,13 @@ function injectCurrencyToggle(rootEl, actor) {
         section.appendChild(btn);
     }
 
-    // Watch for mode class changes (play ↔ edit toggle) so we can
-    // show/remove the button without needing a full sheet re-render.
+    // Watch for any attribute change on the root (class, data-*, etc.) so the
+    // button appears/disappears when dnd5e switches play ↔ edit mode, however
+    // it signals that change, without requiring a full sheet re-render.
     if (!rootEl.dataset.ccModeObserver) {
         rootEl.dataset.ccModeObserver = "1";
         new MutationObserver(addButton)
-            .observe(rootEl, { attributes: true, attributeFilter: ["class"] });
+            .observe(rootEl, { attributes: true });
     }
 
     // Try immediately, then after async inventory renders
@@ -547,7 +551,7 @@ function handleCharacterSheet(sheet, html) {
 
     if (actor) {
         applyVisibility(html, actor);
-        injectCurrencyToggle(html[0], actor);
+        injectCurrencyToggle(html[0], actor, sheet);
         injectCustomCurrencies(html, actor);
         injectWealthTotal(html, actor);
     }
@@ -563,7 +567,7 @@ function handleNpcSheet(sheet, html) {
 
     if (actor) {
         applyVisibility(html, actor);
-        injectCurrencyToggle(html[0], actor);
+        injectCurrencyToggle(html[0], actor, sheet);
         injectCustomCurrencies(html, actor);
     }
 }
