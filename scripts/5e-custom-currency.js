@@ -84,9 +84,14 @@ function applyVisibility(html, actor) {
     const hiddenSet = new Set(hidden);
 
     // ── 1. CSS data-attribute (instant — works as soon as labels hit the DOM) ──
-    rootEl.dataset.hideCurrencies = hidden.join(" ");
-    if (rootEl.parentElement instanceof HTMLElement) {
-        rootEl.parentElement.dataset.hideCurrencies = hidden.join(" ");
+    // Skip if the user is currently in "show all" mode — we must not put keys
+    // back into the attribute while the toggle is active (the !important CSS
+    // rules would re-hide everything and defeat the toggle).
+    if (rootEl.dataset.ccShowAll !== "1") {
+        rootEl.dataset.hideCurrencies = hidden.join(" ");
+        if (rootEl.parentElement instanceof HTMLElement) {
+            rootEl.parentElement.dataset.hideCurrencies = hidden.join(" ");
+        }
     }
 
     // ── 2. Direct jQuery hide/show ────────────────────────────────────────────
@@ -150,19 +155,39 @@ function injectCurrencyToggle(rootEl, actor) {
     const SECTION_SEL = "section.currency, ol.currency-list, ul.currency-list, ul.currency";
     const BTN_SEL     = ".currency-show-hidden-btn";
 
+    /**
+     * dnd5e 5.x character sheets add "mode-play" / "mode-edit" classes to the
+     * sheet root when the user toggles between the two modes.  We only want the
+     * button visible in edit mode.  Sheets that don't use that toggle (NPCs,
+     * vehicles, etc.) won't have either class, so we always show the button for
+     * them.
+     */
+    function isEditMode() {
+        const hasToggle = rootEl.classList.contains("mode-play")
+                       || rootEl.classList.contains("mode-edit");
+        return !hasToggle || rootEl.classList.contains("mode-edit");
+    }
+
     function addButton() {
         if (!rootEl.isConnected) return;
+
+        // Remove button when sheet is not in edit mode
+        if (!isEditMode()) {
+            rootEl.querySelector(BTN_SEL)?.remove();
+            return;
+        }
+
         const section = rootEl.querySelector(SECTION_SEL);
         if (!section) return;
         if (section.querySelector(BTN_SEL)) return; // already present
 
-        const isShowAll = rootEl.dataset.ccShowAll === "1";
+        const showAll = rootEl.dataset.ccShowAll === "1";
 
         const btn = document.createElement("button");
         btn.type      = "button";
-        btn.className = "currency-show-hidden-btn" + (isShowAll ? " active" : "");
-        btn.setAttribute("data-tooltip", isShowAll ? "Restore visibility" : "Show all currencies");
-        btn.innerHTML = `<i class="fas fa-${isShowAll ? "eye-slash" : "eye"}"></i>`;
+        btn.className = "currency-show-hidden-btn" + (showAll ? " active" : "");
+        btn.setAttribute("data-tooltip", showAll ? "Restore visibility" : "Show all currencies");
+        btn.innerHTML = `<i class="fas fa-${showAll ? "eye-slash" : "eye"}"></i>`;
 
         btn.addEventListener("click", (ev) => {
             ev.preventDefault();
@@ -175,19 +200,32 @@ function injectCurrencyToggle(rootEl, actor) {
             btn.querySelector("i").className = `fas fa-${nowShowAll ? "eye-slash" : "eye"}`;
 
             if (nowShowAll) {
-                // Force every currency label/row visible
+                // Clear the CSS data-attribute so !important rules don't block display
+                rootEl.dataset.hideCurrencies = "";
+                if (rootEl.parentElement instanceof HTMLElement) {
+                    rootEl.parentElement.dataset.hideCurrencies = "";
+                }
+                // Force-show every currency label/row
                 const allKeys = [...STANDARD_KEYS, ...getCustomCurrencies().map(c => c.id)];
                 for (const key of allKeys) {
                     $(rootEl).find(`i.currency.${key}`).closest("label, li").show();
                     $(rootEl).find(`li.${key}, li[data-denomination="${key}"]`).show();
                 }
             } else {
-                // Re-apply the normal visibility rules
+                // Re-apply the normal visibility rules (restores data-hide-currencies too)
                 applyVisibility($(rootEl), actor);
             }
         });
 
         section.appendChild(btn);
+    }
+
+    // Watch for mode class changes (play ↔ edit toggle) so we can
+    // show/remove the button without needing a full sheet re-render.
+    if (!rootEl.dataset.ccModeObserver) {
+        rootEl.dataset.ccModeObserver = "1";
+        new MutationObserver(addButton)
+            .observe(rootEl, { attributes: true, attributeFilter: ["class"] });
     }
 
     // Try immediately, then after async inventory renders
