@@ -83,16 +83,15 @@ function applyVisibility(html, actor) {
     const hidden    = buildHiddenList(actor);
     const hiddenSet = new Set(hidden);
 
-    // ── 1. CSS data-attribute ─────────────────────────────────────────────────
+    // ── 1. CSS data-attribute (instant — works as soon as labels hit the DOM) ──
     rootEl.dataset.hideCurrencies = hidden.join(" ");
     if (rootEl.parentElement instanceof HTMLElement) {
         rootEl.parentElement.dataset.hideCurrencies = hidden.join(" ");
     }
 
-    // ── 2. MutationObserver + direct jQuery (handles async renders) ───────────
-    const SECTION_SEL = "section.currency, ol.currency-list, ul.currency-list, ul.currency";
-
+    // ── 2. Direct jQuery hide/show ────────────────────────────────────────────
     function hideNow() {
+        if (!rootEl.isConnected) return;
         const allKeys = [...STANDARD_KEYS, ...getCustomCurrencies().map(c => c.id)];
         for (const key of allKeys) {
             if (hiddenSet.has(key)) {
@@ -105,25 +104,29 @@ function applyVisibility(html, actor) {
         }
     }
 
-    // Run immediately in case section already exists (sync render path)
-    if (rootEl.querySelector(SECTION_SEL)) hideNow();
+    // Run immediately (sync render path)
+    hideNow();
 
-    // Watch for the section being created or replaced (async render path)
+    // ── 3. MutationObserver — catches async inventory renders ─────────────────
+    // Disconnect any previous observer for this exact element
+    _sheetObservers.get(rootEl)?.disconnect();
+
     let debounce = null;
     const obs = new MutationObserver(() => {
-        if (!rootEl.querySelector(SECTION_SEL)) return;
+        if (!rootEl.isConnected) {
+            obs.disconnect();
+            _sheetObservers.delete(rootEl);
+            return;
+        }
         clearTimeout(debounce);
         debounce = setTimeout(hideNow, 50);
     });
+    _sheetObservers.set(rootEl, obs);
     obs.observe(rootEl, { childList: true, subtree: true });
 
-    // Disconnect once the sheet root is removed from the page
-    new MutationObserver((_, self) => {
-        if (!document.contains(rootEl)) {
-            obs.disconnect();
-            self.disconnect();
-        }
-    }).observe(document.body, { childList: true, subtree: false });
+    // Belt-and-suspenders fallbacks for slow async renders
+    setTimeout(hideNow, 100);
+    setTimeout(hideNow, 400);
 }
 
 // ─── Custom-currency icon helpers ────────────────────────────────────────────
@@ -258,6 +261,9 @@ function injectWealthTotal(html, actor) {
 
     html.find("section.currency, ol.currency-list, ul.currency-list, ul.currency").first().after(line);
 }
+
+// WeakMap so we never stack duplicate observers on the same sheet element
+const _sheetObservers = new WeakMap();
 
 // ─── _prepareContext patch ────────────────────────────────────────────────────
 
@@ -479,57 +485,73 @@ export async function patchDnd5eInventory() {
     if (!cls?.prototype?.connectedCallback) return;
 
     const origCC = cls.prototype.connectedCallback;
-    const origDC = cls.prototype.disconnectedCallback;
 
     cls.prototype.connectedCallback = function () {
         if (origCC) origCC.call(this);
-
         const el = this;
-        console.log("5e-custom-currency | inventory connectedCallback, actor:", el.actor?.name ?? "null");
-
-        function applyHiding(source) {
+        // Delay slightly so the element has time to populate its actor reference
+        // and render its initial content before we try to hide things.
+        setTimeout(() => {
             const actor = el.actor;
-            console.log(`5e-custom-currency | applyHiding(${source}) actor=${actor?.name ?? "null"}`);
             if (!actor?.system?.currency) return;
-            const hidden = new Set(buildHiddenList(actor));
-            console.log(`5e-custom-currency | hidden=[${[...hidden].join(",")}]`);
-            const allKeys = [...STANDARD_KEYS, ...getCustomCurrencies().map(c => c.id)];
-            for (const key of allKeys) {
-                const icons = [...el.querySelectorAll(`i.currency.${key}`)];
-                console.log(`5e-custom-currency | key=${key} found=${icons.length} shouldHide=${hidden.has(key)}`);
-                for (const icon of icons) {
-                    const row = icon.closest("label, li");
-                    if (row) row.style.display = hidden.has(key) ? "none" : "";
-                }
-            }
-        }
-
-        // Disconnect any stale observer from a previous connection
-        this._5eccObs?.disconnect();
-
-        // Run immediately — catches synchronous renders inside origCC
-        applyHiding("immediate");
-
-        // Watch for async renders (origCC may start an async render)
-        let debounce = null;
-        const obs = new MutationObserver(() => {
-            clearTimeout(debounce);
-            debounce = setTimeout(() => applyHiding("observer"), 50);
-        });
-        this._5eccObs = obs;
-        obs.observe(el, { childList: true, subtree: true });
-
-        // Belt-and-suspenders: also run after a short delay
-        setTimeout(() => applyHiding("timeout-200"), 200);
+            // Prefer the sheet root so the observer covers the full sheet;
+            // fall back to the inventory element itself.
+            const rootEl = el.app?.element ?? el;
+            applyVisibility($(rootEl), actor);
+        }, 50);
     };
 
-    cls.prototype.disconnectedCallback = function () {
-        if (origDC) origDC.call(this);
-        this._5eccObs?.disconnect();
-        delete this._5eccObs;
-    };
+    // Apply to any dnd5e-inventory elements that were already in the DOM
+    // before this patch ran (e.g. sheets restored from a previous session).
+    for (const el of document.querySelectorAll("dnd5e-inventory")) {
+        const actor = el.actor;
+        if (!actor?.system?.currency) continue;
+        const rootEl = el.app?.element ?? el;
+        setTimeout(() => applyVisibility($(rootEl), actor), 100);
+    }
 
     console.log("5e-custom-currency | Patched dnd5e-inventory");
+}
+
+// ─── Dynamic render-hook registration ────────────────────────────────────────
+
+/**
+ * In FVTT V13, ApplicationV2 fires `render{ClassName}` hooks instead of the
+ * generic `render` hook used by V1.  We cannot hard-code class names because
+ * dnd5e renames them between major versions (e.g. ActorSheet5eCharacter2 →
+ * CharacterActorSheet in dnd5e 5.x).
+ *
+ * Instead we iterate CONFIG.Actor.sheetClasses at ready-time and register a
+ * hook for every class name we find.  This catches every sheet variant
+ * (character, npc, vehicle, group…) in any dnd5e version automatically.
+ */
+function registerDynamicRenderHooks() {
+    const seen = new Set();
+
+    for (const actorType of Object.keys(CONFIG.Actor.sheetClasses ?? {})) {
+        for (const entry of Object.values(CONFIG.Actor.sheetClasses[actorType])) {
+            const cls       = entry.cls ?? entry;
+            const className = cls?.name;
+            if (!className || seen.has(className)) continue;
+            seen.add(className);
+
+            Hooks.on(`render${className}`, (app, html) => {
+                html = normaliseHtml(html);
+                const actor = actorFromSheet(app);
+                if (!actor?.system?.currency) return;
+                if (actor.type === "character") handleCharacterSheet(app, html);
+                else handleNpcSheet(app, html);
+            });
+        }
+    }
+
+    if (seen.size) {
+        console.log(
+            `5e-custom-currency | Registered dynamic render hooks for: ${
+                [...seen].map(n => `render${n}`).join(", ")
+            }`
+        );
+    }
 }
 
 // ─── Hooks ────────────────────────────────────────────────────────────────────
@@ -562,6 +584,7 @@ Hooks.on("ready", () => {
 
     patchConvertCurrency();
     patchSheetContext();
+    registerDynamicRenderHooks();
     patchDnd5eInventory();
 
     if (game.modules.get("item-piles")?.active) {
@@ -580,6 +603,9 @@ Hooks.on("ready", () => {
 
 const _handled = new WeakSet();
 
+// Generic "render" hook — fires for ApplicationV1 sheets (FVTT V12 / older
+// dnd5e).  In FVTT V13 this does NOT fire for ApplicationV2 sheets; those are
+// handled by registerDynamicRenderHooks() above.
 Hooks.on("render", (app, html) => {
     const actor = actorFromSheet(app);
     if (!actor?.system?.currency) return;
